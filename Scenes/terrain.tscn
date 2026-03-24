@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://jwag4revk61r"]
+
+[ext_resource type="Script" uid="uid://cl1tldp4hxjef" path="res://Scripts/Terrain.gd" id="1_g24sy"]
+
+[node name="Terrain" type="StaticBody3D" unique_id=1111209924]
+script = ExtResource("1_g24sy")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1633945452]

@@ -1,0 +1,11 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# C# and Visual Studio ignores
+[Oo]bj/
+[Bb]in/
+.vs/
+*.user
+*.suo
+Export/
