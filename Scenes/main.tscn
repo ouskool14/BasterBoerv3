@@ -6,6 +6,8 @@
 [ext_resource type="Script" uid="uid://ccrn8fxcbwioy" path="res://Scripts/TreeSpawner.gd" id="4_jjvhh"]
 [ext_resource type="Script" uid="uid://c7r8x36q13xle" path="res://AnimalRenderer.cs" id="5_kry3j"]
 [ext_resource type="PackedScene" uid="uid://br7k6cgwtbmeg" path="res://Assets/Kudu.glb" id="5_kudu"]
+[ext_resource type="Script" uid="uid://be63kmm7ek6ns" path="res://GrassSpawner.cs" id="6_grass"]
+[ext_resource type="PackedScene" uid="uid://cvjriexdnmglm" path="res://Assets/SavannahGrass.glb" id="7_grass_scene"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_8gbba"]
 sky_top_color = Color(0.101960786, 0.22745098, 0.36078432, 1)
@@ -43,3 +45,10 @@ script = ExtResource("4_jjvhh")
 [node name="AnimalRenderer" type="Node3D" parent="." unique_id=387894736]
 script = ExtResource("5_kry3j")
 KuduScene = ExtResource("5_kudu")
+
+[node name="GrassSpawner" type="Node3D" parent="." node_paths=PackedStringArray("MultiMeshNode") unique_id=2000000000]
+script = ExtResource("6_grass")
+MultiMeshNode = NodePath("MultiMeshInstance3D")
+GrassScene = ExtResource("7_grass_scene")
+
+[node name="MultiMeshInstance3D" type="MultiMeshInstance3D" parent="GrassSpawner" unique_id=2000000001]
