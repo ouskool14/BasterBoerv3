@@ -7,18 +7,18 @@ using LandManagementSim.Simulation;
 /// using one MultiMeshInstance3D per species. Bridges the pure-data
 /// simulation layer to the visual world.
 ///
-/// Attach to a Node3D in your main scene. Assign species meshes in the Inspector.
+/// Attach to a Node3D in your main scene. Drag .glb files into the Inspector slots.
 /// </summary>
 public partial class AnimalRenderer : Node3D
 {
-	// ── Inspector: assign your animal meshes here ─────────────────────────
+	// ── Inspector: drag your .glb files here ─────────────────────────────
 
-	[Export] public Mesh KuduMesh;
-	[Export] public Mesh ImpalaMesh;
-	[Export] public Mesh BuffaloMesh;
-	[Export] public Mesh ZebraMesh;
-	[Export] public Mesh WildebeestMesh;
-	[Export] public Mesh WaterbuckMesh;
+	[Export] public PackedScene KuduScene;
+	[Export] public PackedScene ImpalaScene;
+	[Export] public PackedScene BuffaloScene;
+	[Export] public PackedScene ZebraScene;
+	[Export] public PackedScene WildebeestScene;
+	[Export] public PackedScene WaterbuckScene;
 
 	[ExportGroup("Render distances")]
 	[Export] public float MaxRenderDistance = 800f; // Beyond this, don't render
@@ -36,13 +36,13 @@ public partial class AnimalRenderer : Node3D
 
 	public override void _Ready()
 	{
-		// Map species to their assigned meshes
-		if (KuduMesh != null) _speciesMeshes[Species.Kudu] = KuduMesh;
-		if (ImpalaMesh != null) _speciesMeshes[Species.Impala] = ImpalaMesh;
-		if (BuffaloMesh != null) _speciesMeshes[Species.Buffalo] = BuffaloMesh;
-		if (ZebraMesh != null) _speciesMeshes[Species.Zebra] = ZebraMesh;
-		if (WildebeestMesh != null) _speciesMeshes[Species.Wildebeest] = WildebeestMesh;
-		if (WaterbuckMesh != null) _speciesMeshes[Species.Waterbuck] = WaterbuckMesh;
+		// Extract meshes from GLB PackedScenes and map to species
+		TryLoadMesh(KuduScene, Species.Kudu);
+		TryLoadMesh(ImpalaScene, Species.Impala);
+		TryLoadMesh(BuffaloScene, Species.Buffalo);
+		TryLoadMesh(ZebraScene, Species.Zebra);
+		TryLoadMesh(WildebeestScene, Species.Wildebeest);
+		TryLoadMesh(WaterbuckScene, Species.Waterbuck);
 
 		// Create a MultiMeshInstance3D child for each species that has a mesh
 		foreach (var kvp in _speciesMeshes)
@@ -64,6 +64,48 @@ public partial class AnimalRenderer : Node3D
 		}
 
 		GD.Print($"[AnimalRenderer] Ready. {_speciesMeshes.Count} species meshes loaded.");
+	}
+
+	/// <summary>
+	/// Extracts the first Mesh found inside a GLB PackedScene.
+	/// GLB files are imported as scenes — this instantiates temporarily,
+	/// finds the MeshInstance3D, grabs its mesh, and frees the temp node.
+	/// </summary>
+	private void TryLoadMesh(PackedScene scene, Species species)
+	{
+		if (scene == null) return;
+
+		Node instance = scene.Instantiate();
+		Mesh mesh = FindMeshRecursive(instance);
+
+		if (mesh != null)
+		{
+			_speciesMeshes[species] = mesh;
+			GD.Print($"[AnimalRenderer] Loaded mesh for {species}: {mesh.GetType().Name}");
+		}
+		else
+		{
+			GD.PrintErr($"[AnimalRenderer] No MeshInstance3D found in {species} scene.");
+		}
+
+		instance.QueueFree();
+	}
+
+	/// <summary>
+	/// Recursively searches a node tree for the first MeshInstance3D and returns its mesh.
+	/// </summary>
+	private static Mesh FindMeshRecursive(Node node)
+	{
+		if (node is MeshInstance3D mi && mi.Mesh != null)
+			return mi.Mesh;
+
+		foreach (Node child in node.GetChildren())
+		{
+			Mesh found = FindMeshRecursive(child);
+			if (found != null) return found;
+		}
+
+		return null;
 	}
 
 	public override void _Process(double delta)

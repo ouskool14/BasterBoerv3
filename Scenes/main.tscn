@@ -4,6 +4,8 @@
 [ext_resource type="PackedScene" uid="uid://r2fmexo3f0m" path="res://Scenes/bakkie.tscn" id="2_bo1nx"]
 [ext_resource type="PackedScene" uid="uid://jwag4revk61r" path="res://Scenes/terrain.tscn" id="3_8gbba"]
 [ext_resource type="Script" uid="uid://ccrn8fxcbwioy" path="res://Scripts/TreeSpawner.gd" id="4_jjvhh"]
+[ext_resource type="Script" uid="uid://c7r8x36q13xle" path="res://AnimalRenderer.cs" id="5_kry3j"]
+[ext_resource type="PackedScene" uid="uid://br7k6cgwtbmeg" path="res://Assets/Kudu.glb" id="5_kudu"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_8gbba"]
 sky_top_color = Color(0.101960786, 0.22745098, 0.36078432, 1)
@@ -37,3 +39,7 @@ environment = SubResource("Environment_bo1nx")
 
 [node name="Treespawner" type="Node3D" parent="." unique_id=929476731]
 script = ExtResource("4_jjvhh")
+
+[node name="AnimalRenderer" type="Node3D" parent="." unique_id=387894736]
+script = ExtResource("5_kry3j")
+KuduScene = ExtResource("5_kudu")

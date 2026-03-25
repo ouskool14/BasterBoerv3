@@ -42,6 +42,11 @@ namespace LandManagementSim.Simulation
 		private float _reproductionTimer = 0f;
 		private const float REPRODUCTION_INTERVAL = 60f; // seconds (tune later)
 
+		// New fields for smooth grazing drift
+		private Vector3 _grazeDirection;
+		private float _grazeDirectionTimer;
+
+
 		/// <summary>
 		/// Species of this herd.
 		/// </summary>
@@ -397,6 +402,7 @@ namespace LandManagementSim.Simulation
 
 			CurrentState = newState;
 			_stateTime = 0f;
+			_grazeDirectionTimer = 0f;
 			_currentSpreadRadius = GetSpreadRadiusForState(newState);
 
 			// Update all animal animations based on new state
@@ -448,12 +454,23 @@ namespace LandManagementSim.Simulation
 					break;
 
 				case HerdState.Grazing:
-					// Slow drift while grazing
-					Vector3 grazeDirection = GetRandomDirection();
+					// Update graze direction periodically instead of every frame
+					_grazeDirectionTimer -= deltaTime;
+					if (_grazeDirectionTimer <= 0f)
+					{
+						// Pick new direction and set random hold duration
+						_grazeDirection = GetRandomDirection();
+						_grazeDirectionTimer = 3f + (float)_rng.NextDouble() * 5f; // 3-8 seconds
+					}
+					
+					// Apply smooth drift movement using persistent direction
 					float grazeSpeed = _config.GrazeSpeedMPS * deltaTime;
-					Vector3 grazeMovement = grazeDirection * grazeSpeed;
+					Vector3 grazeMovement = _grazeDirection * grazeSpeed;
 					CenterPosition += grazeMovement;
 					_dailyTravelDistance += grazeMovement.Length();
+					
+					// Update movement direction for proper animal orientation
+					MovementDirection = _grazeDirection;
 					break;
 
 				case HerdState.Drinking:
