@@ -1,0 +1,24 @@
+[gd_scene format=3 uid="uid://c61un3r1xe6dg"]
+
+[ext_resource type="PackedScene" uid="uid://lnwkxrj5c6no" path="res://Assets/Plaashuis.glb" id="1_plaas"]
+[ext_resource type="Texture2D" uid="uid://eweuj71qqwhc" path="res://Assets/Plaashuis_Color.jpg" id="2_color"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_home"]
+albedo_texture = ExtResource("2_color")
+roughness = 0.8
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_home"]
+size = Vector3(6, 4, 7.8927)
+
+[node name="Home" type="StaticBody3D" unique_id=264032231]
+
+[node name="Plaashuis" parent="." unique_id=1791811402 instance=ExtResource("1_plaas")]
+
+[node name="tripo_node_d76ee7b0-e3f4-44d2-bdf2-5b05a9a7538c" parent="Plaashuis" index="0" unique_id=62134725]
+surface_material_override/0 = SubResource("StandardMaterial3D_home")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1603184601]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, -0.053649902)
+shape = SubResource("BoxShape3D_home")
+
+[editable path="Plaashuis"]

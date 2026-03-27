@@ -1,5 +1,7 @@
 using System;
 using Godot;
+using BasterBoer.Core.Systems;
+using BasterBoer.Core.Water;
 
 namespace LandManagementSim.Simulation
 {
@@ -29,7 +31,7 @@ namespace LandManagementSim.Simulation
 	{
 		private readonly SpeciesConfig _config;
 		private readonly Random _rng;
-		
+
 		// State tracking
 		private float _updateAccumulator;
 		private float _stateTime;
@@ -42,10 +44,8 @@ namespace LandManagementSim.Simulation
 		private float _reproductionTimer = 0f;
 		private const float REPRODUCTION_INTERVAL = 60f; // seconds (tune later)
 
-		// New fields for smooth grazing drift
-		private Vector3 _grazeDirection;
-		private float _grazeDirectionTimer;
-
+		// Water tracking
+		private int _targetWaterSourceId = -1;
 
 		/// <summary>
 		/// Species of this herd.
@@ -402,7 +402,6 @@ namespace LandManagementSim.Simulation
 
 			CurrentState = newState;
 			_stateTime = 0f;
-			_grazeDirectionTimer = 0f;
 			_currentSpreadRadius = GetSpreadRadiusForState(newState);
 
 			// Update all animal animations based on new state
@@ -454,26 +453,20 @@ namespace LandManagementSim.Simulation
 					break;
 
 				case HerdState.Grazing:
-					// Update graze direction periodically instead of every frame
-					_grazeDirectionTimer -= deltaTime;
-					if (_grazeDirectionTimer <= 0f)
-					{
-						// Pick new direction and set random hold duration
-						_grazeDirection = GetRandomDirection();
-						_grazeDirectionTimer = 3f + (float)_rng.NextDouble() * 5f; // 3-8 seconds
-					}
-					
-					// Apply smooth drift movement using persistent direction
+					// Slow drift while grazing
+					Vector3 grazeDirection = GetRandomDirection();
 					float grazeSpeed = _config.GrazeSpeedMPS * deltaTime;
-					Vector3 grazeMovement = _grazeDirection * grazeSpeed;
+					Vector3 grazeMovement = grazeDirection * grazeSpeed;
 					CenterPosition += grazeMovement;
 					_dailyTravelDistance += grazeMovement.Length();
-					
-					// Update movement direction for proper animal orientation
-					MovementDirection = _grazeDirection;
 					break;
 
 				case HerdState.Drinking:
+					// Consume water from the water source
+					DrinkFromWaterSource(deltaTime);
+					MovementDirection = Vector3.Zero;
+					break;
+
 				case HerdState.Resting:
 				case HerdState.Alerting:
 					// Stationary states
@@ -531,14 +524,55 @@ namespace LandManagementSim.Simulation
 		}
 
 		/// <summary>
-		/// Sets target to nearest water source.
-		/// TODO: Integrate with terrain/water system.
+		/// Sets target to nearest water source using WaterSystem.
+		/// Falls back to random direction if no water found.
 		/// </summary>
 		private void SetWaterTarget()
 		{
-			// Placeholder: move in random direction toward water
-			Vector3 waterDirection = GetRandomDirection();
-			TargetPosition = CenterPosition + waterDirection * 100f;
+			// Query WaterSystem for nearest available water
+			WaterSource? nearestWater = WaterSystem.Instance.FindBestWater(CenterPosition, 3000f);
+
+			if (nearestWater.HasValue)
+			{
+				TargetPosition = nearestWater.Value.Position;
+				_targetWaterSourceId = nearestWater.Value.Id;
+			}
+			else
+			{
+				// No water found - move in random direction hoping to find some
+				Vector3 waterDirection = GetRandomDirection();
+				TargetPosition = CenterPosition + waterDirection * 200f;
+				_targetWaterSourceId = -1;
+			}
+		}
+
+		/// <summary>
+		/// Called when herd reaches water and drinks.
+		/// Consumes water from the WaterSystem.
+		/// </summary>
+		private void DrinkFromWaterSource(float deltaTime)
+		{
+			if (_targetWaterSourceId < 0) return;
+
+			// Each animal drinks ~20 liters per drinking session over time
+			// Large animals (buffalo) drink more, small animals (impala) less
+			float litersPerAnimalPerSecond = 0.5f; // ~30 liters over a minute
+			float totalLiters = Animals.Length * litersPerAnimalPerSecond * deltaTime;
+
+			float consumed = WaterSystem.Instance.ConsumeWater(_targetWaterSourceId, totalLiters);
+
+			// If water source ran dry while drinking, need to find new source
+			if (consumed < totalLiters * 0.5f)
+			{
+				WaterSource? source = WaterSystem.Instance.GetWaterSource(_targetWaterSourceId);
+				if (!source.HasValue || !source.Value.HasWater)
+				{
+					// Water dried up - need to move on
+					Thirst = Math.Min(1f, Thirst + 0.1f); // Still thirsty
+					TransitionToState(HerdState.Moving);
+					SetWaterTarget();
+				}
+			}
 		}
 
 		/// <summary>

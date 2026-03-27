@@ -28,6 +28,10 @@ namespace BasterBoer.Core
 		/// <summary>Active loans requiring payment.</summary>
 		public List<Loan> ActiveLoans { get; } = new List<Loan>();
 
+		[Export] public float MapSizeX { get; set; } = 4000f;
+		[Export] public float MapSizeZ { get; set; } = 4000f;
+		[Export] public int WorldSeed { get; set; } = 12345;
+
 		public override void _Ready()
 		{
 			if (_instance != null && _instance != this)

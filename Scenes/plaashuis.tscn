@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://d2ko2hqm0s2kj"]
+
+[ext_resource type="PackedScene" uid="uid://lnwkxrj5c6no" path="res://Assets/Plaashuis.glb" id="1_vlmjv"]
+[ext_resource type="Texture2D" uid="uid://eweuj71qqwhc" path="res://Assets/Plaashuis_Color.jpg" id="2_4ap15"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_iw8y8"]
+albedo_texture = ExtResource("2_4ap15")
+
+[node name="Plaashuis" unique_id=166911615 instance=ExtResource("1_vlmjv")]
+
+[node name="tripo_node_d76ee7b0-e3f4-44d2-bdf2-5b05a9a7538c" parent="." index="0" unique_id=62134725]
+surface_material_override/0 = SubResource("StandardMaterial3D_iw8y8")

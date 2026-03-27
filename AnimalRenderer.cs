@@ -56,11 +56,17 @@ public partial class AnimalRenderer : Node3D
 		// Find the player node for distance checks
 		_player = GetTree().Root.FindChild("Boer", true, false) as Node3D;
 
-		// Spawn a test herd if enabled and AnimalSystem has no herds yet
+		// Spawn test herds if enabled and AnimalSystem has no herds yet
 		if (SpawnTestHerd && AnimalSystem.Instance.Herds.Count == 0)
 		{
+			// Herd 1: Kudu
 			AnimalSystem.Instance.CreateHerd(Species.Kudu, TestHerdPosition, TestHerdSeed);
 			GD.Print($"[AnimalRenderer] Spawned test Kudu herd at {TestHerdPosition}");
+
+			// Herd 2: Zebra (offset by 40m)
+			Vector3 zebraPos = TestHerdPosition + new Vector3(40f, 0f, 40f);
+			AnimalSystem.Instance.CreateHerd(Species.Zebra, zebraPos, TestHerdSeed + 1);
+			GD.Print($"[AnimalRenderer] Spawned test Zebra herd at {zebraPos}");
 		}
 
 		GD.Print($"[AnimalRenderer] Ready. {_speciesMeshes.Count} species meshes loaded.");

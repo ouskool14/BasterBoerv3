@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://r2fmexo3f0m"]
 
 [ext_resource type="Script" uid="uid://c5eywo5uxyc7x" path="res://Scripts/Bakkie.gd" id="1_hkuuq"]
-[ext_resource type="PackedScene" uid="uid://3cffay0078o6" path="res://Assets/Characters/1400.glb" id="2_i0pgl"]
+[ext_resource type="PackedScene" uid="uid://b67j0bcdmrait" path="res://Assets/pickup truck 3d model.glb" id="2_i0pgl"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_hkuuq"]
 size = Vector3(1.7948914, 0.7631836, 0.7217407)
@@ -16,5 +16,5 @@ shape = SubResource("BoxShape3D_hkuuq")
 
 [node name="SeatPosition" type="Node3D" parent="." unique_id=760374395]
 
-[node name="1400" parent="." unique_id=1321732070 instance=ExtResource("2_i0pgl")]
+[node name="PickupTruck" parent="." unique_id=1321732070 instance=ExtResource("2_i0pgl")]
 transform = Transform3D(-8.742278e-08, 0, 2, 0, 2, 0, -2, 0, -8.742278e-08, 0, 0, 0)

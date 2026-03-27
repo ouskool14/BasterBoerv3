@@ -141,6 +141,7 @@ namespace WorldStreaming
 			}
 
 			GD.Print($"[WorldChunkStreamer] Initial load started around chunk {_currentPlayerChunk}");
+			FenceSystem.Instance?.UpdateVisibleChunks(initialChunks);
 		}
 
 		private void CheckPlayerMovement()
@@ -189,6 +190,9 @@ namespace WorldStreaming
 
 				LoadChunkAsync(coord);
 			}
+
+			// Synchronize fence system visibility
+			FenceSystem.Instance?.UpdateVisibleChunks(desiredChunks);
 		}
 
 		private async void LoadChunkAsync(ChunkCoord coord)
