@@ -45,8 +45,17 @@ namespace WorldStreaming
 		/// </summary>
 		public static ArrayMesh GenerateTerrainMesh(ChunkCoord coord, float chunkSize)
 		{
-			Vector3 chunkOrigin = coord.GetWorldOrigin(chunkSize);
+			return GenerateTerrainMesh(coord.GetWorldOrigin(chunkSize), chunkSize);
+		}
+
+		/// <summary>
+		/// Generates terrain mesh with explicit world origin for noise sampling.
+		/// Mesh vertices are in local space centered on chunkSize/2.
+		/// </summary>
+		public static ArrayMesh GenerateTerrainMesh(Vector3 worldOrigin, float chunkSize)
+		{
 			float vertexSpacing = chunkSize / (TERRAIN_RESOLUTION - 1);
+			float halfSize = chunkSize * 0.5f;
 
 			var surfaceTool = new SurfaceTool();
 			surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
@@ -56,25 +65,38 @@ namespace WorldStreaming
 			{
 				for (int x = 0; x < TERRAIN_RESOLUTION - 1; x++)
 				{
-					// Calculate quad corners
-					Vector3 v0 = GetTerrainVertex(chunkOrigin, x * vertexSpacing, z * vertexSpacing);
-					Vector3 v1 = GetTerrainVertex(chunkOrigin, (x + 1) * vertexSpacing, z * vertexSpacing);
-					Vector3 v2 = GetTerrainVertex(chunkOrigin, (x + 1) * vertexSpacing, (z + 1) * vertexSpacing);
-					Vector3 v3 = GetTerrainVertex(chunkOrigin, x * vertexSpacing, (z + 1) * vertexSpacing);
+					// Local vertices centered on chunk (range: -halfSize to +halfSize)
+					float lx0 = x * vertexSpacing - halfSize;
+					float lx1 = (x + 1) * vertexSpacing - halfSize;
+					float lz0 = z * vertexSpacing - halfSize;
+					float lz1 = (z + 1) * vertexSpacing - halfSize;
+
+					// World positions for noise sampling
+					float wx0 = worldOrigin.X + x * vertexSpacing;
+					float wx1 = worldOrigin.X + (x + 1) * vertexSpacing;
+					float wz0 = worldOrigin.Z + z * vertexSpacing;
+					float wz1 = worldOrigin.Z + (z + 1) * vertexSpacing;
+
+					// Heights from world positions
+					float h00 = GetTerrainHeight(wx0, wz0);
+					float h10 = GetTerrainHeight(wx1, wz0);
+					float h11 = GetTerrainHeight(wx1, wz1);
+					float h01 = GetTerrainHeight(wx0, wz1);
+
+					Vector3 v0 = new Vector3(lx0, h00, lz0);
+					Vector3 v1 = new Vector3(lx1, h10, lz0);
+					Vector3 v2 = new Vector3(lx1, h11, lz1);
+					Vector3 v3 = new Vector3(lx0, h01, lz1);
 
 					// Calculate flat normals for each triangle
 					Vector3 normal1 = CalculateFlatNormal(v0, v1, v2);
 					Vector3 normal2 = CalculateFlatNormal(v0, v2, v3);
 
 					// Get South African terrain colors
-					Color c0 = GetSouthAfricanTerrainColor(chunkOrigin.X + x * vertexSpacing, 
-														  chunkOrigin.Z + z * vertexSpacing, v0.Y);
-					Color c1 = GetSouthAfricanTerrainColor(chunkOrigin.X + (x + 1) * vertexSpacing, 
-														  chunkOrigin.Z + z * vertexSpacing, v1.Y);
-					Color c2 = GetSouthAfricanTerrainColor(chunkOrigin.X + (x + 1) * vertexSpacing, 
-														  chunkOrigin.Z + (z + 1) * vertexSpacing, v2.Y);
-					Color c3 = GetSouthAfricanTerrainColor(chunkOrigin.X + x * vertexSpacing, 
-														  chunkOrigin.Z + (z + 1) * vertexSpacing, v3.Y);
+					Color c0 = GetSouthAfricanTerrainColor(wx0, wz0, v0.Y);
+					Color c1 = GetSouthAfricanTerrainColor(wx1, wz0, v1.Y);
+					Color c2 = GetSouthAfricanTerrainColor(wx1, wz1, v2.Y);
+					Color c3 = GetSouthAfricanTerrainColor(wx0, wz1, v3.Y);
 
 					// Add first triangle (v0, v1, v2)
 					AddFlatTriangle(surfaceTool, v0, v1, v2, normal1, c0, c1, c2);

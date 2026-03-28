@@ -15,12 +15,14 @@ namespace WorldStreaming
 
 		public override void _Ready()
 		{
-			var coord = new ChunkCoord(ChunkCoordX, ChunkCoordZ);
-			Position = coord.GetWorldOrigin(ChunkSize);
+			// Sample noise from a region centered on world origin
+			// Mesh vertices are local-space centered (range: -128 to +128)
+			// Node position at (0,0,0) means terrain is centered on the origin
+			var worldOrigin = new Vector3(-ChunkSize * 0.5f, 0f, -ChunkSize * 0.5f);
 
-			GD.Print($"[TerrainChunkLoader] Generating chunk ({ChunkCoordX},{ChunkCoordZ}) at {Position}");
+			GD.Print($"[TerrainChunkLoader] Generating terrain centered at origin. Noise origin: {worldOrigin}");
 
-			ArrayMesh mesh = TerrainGenerator.GenerateTerrainMesh(coord, ChunkSize);
+			ArrayMesh mesh = TerrainGenerator.GenerateTerrainMesh(worldOrigin, ChunkSize);
 			if (mesh == null)
 			{
 				GD.PushError("[TerrainChunkLoader] GenerateTerrainMesh returned null!");
