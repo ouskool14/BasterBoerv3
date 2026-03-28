@@ -1,6 +1,7 @@
 using Godot;
 using System.Collections.Generic;
 using LandManagementSim.Simulation;
+using LandManagementSim.Terrain;
 
 /// <summary>
 /// Reads herd data from AnimalSystem every frame and renders animals
@@ -36,6 +37,12 @@ public partial class AnimalRenderer : Node3D
 
 	public override void _Ready()
 	{
+		// Initialize terrain heightmap (18KB for 4000m at 4m resolution)
+		var gameState = GetNodeOrNull<GameState>("/root/GameState");
+		float mapX = gameState?.MapSizeX ?? 4000f;
+		float mapZ = gameState?.MapSizeZ ?? 4000f;
+		TerrainQuery.Initialize(mapX, mapZ);
+
 		// Extract meshes from GLB PackedScenes and map to species
 		TryLoadMesh(KuduScene, Species.Kudu);
 		TryLoadMesh(ImpalaScene, Species.Impala);
@@ -157,6 +164,9 @@ public partial class AnimalRenderer : Node3D
 
 				// Absolute position = herd center + animal offset
 				Vector3 worldPos = herd.CenterPosition + animals[i].WorldPosition;
+
+				// Snap Y to terrain (cached heightmap bilinear — not Perlin noise)
+				worldPos.Y = TerrainQuery.GetHeight(worldPos.X, worldPos.Z);
 
 				// Face the herd's movement direction (or forward if stationary)
 				Basis basis = Basis.Identity;

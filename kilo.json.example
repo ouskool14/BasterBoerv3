@@ -1,0 +1,34 @@
+{
+  "model": "openrouter/anthropic/claude-sonnet-4",
+  "small_model": "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+  "default_agent": "code",
+  "provider": {
+    "openrouter": {
+      "options": {
+        "apiKey": "sk-or-v1-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "models": {
+        "anthropic/claude-sonnet-4": { "name": "Claude Sonnet 4" },
+        "anthropic/claude-haiku": { "name": "Claude Haiku" },
+        "meta-llama/llama-3.3-70b-instruct:free": { "name": "Llama 3.3 70B (Free)" },
+        "google/gemini-2.0-flash-exp:free": { "name": "Gemini 2.0 Flash (Free)" },
+        "deepseek/deepseek-r1:free": { "name": "DeepSeek R1 (Free)" }
+      }
+    }
+  },
+  "permission": {
+    "bash": "ask",
+    "edit": {
+      "*.cs": "allow",
+      "*.gd": "allow",
+      "*.md": "allow",
+      "*.json": "allow",
+      "*.tscn": "ask",
+      "*.tres": "ask",
+      "*": "ask"
+    },
+    "read": "allow"
+  },
+  "compaction": { "auto": true, "prune": true }
+}

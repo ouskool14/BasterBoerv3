@@ -9,3 +9,6 @@
 *.user
 *.suo
 Export/
+
+# Kilo config (contains API keys)
+kilo.json

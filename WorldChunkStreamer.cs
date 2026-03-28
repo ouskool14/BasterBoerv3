@@ -124,6 +124,25 @@ namespace WorldStreaming
 			GD.Print("[WorldChunkStreamer] Flora visuals refreshed for all active chunks");
 		}
 
+		private bool IsChunkWithinMapBounds(ChunkCoord coord)
+		{
+			var gameState = GameState.Instance;
+			if (gameState == null) return true; // Fail-safe: allow if no game state
+
+			Vector3 origin = coord.GetWorldOrigin(ChunkSize);
+			float halfX = gameState.MapSizeX / 2f;
+			float halfZ = gameState.MapSizeZ / 2f;
+
+			// Add a buffer of one chunk size to ensure terrain exists under the fence
+			// and slightly beyond to prevent gaps at the boundary.
+			const float boundaryBuffer = 10f; 
+
+			bool overlapX = origin.X < halfX + boundaryBuffer && origin.X + ChunkSize > -halfX - boundaryBuffer;
+			bool overlapZ = origin.Z < halfZ + boundaryBuffer && origin.Z + ChunkSize > -halfZ - boundaryBuffer;
+
+			return overlapX && overlapZ;
+		}
+
 		private void InitialChunkLoad()
 		{
 			ChunkCoord[] initialChunks = _currentPlayerChunk.Get3x3Grid();

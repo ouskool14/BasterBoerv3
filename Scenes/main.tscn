@@ -2,7 +2,7 @@
 
 [ext_resource type="PackedScene" uid="uid://7q0v27h5xjmi" path="res://Scenes/boer.tscn" id="1_jjgbg"]
 [ext_resource type="PackedScene" uid="uid://r2fmexo3f0m" path="res://Scenes/bakkie.tscn" id="2_bo1nx"]
-[ext_resource type="PackedScene" uid="uid://jwag4revk61r" path="res://Scenes/terrain.tscn" id="3_8gbba"]
+[ext_resource type="Script" uid="uid://c3x7tchunkloader001" path="res://TerrainChunkLoader.cs" id="3_chunk"]
 [ext_resource type="Script" uid="uid://ccrn8fxcbwioy" path="res://Scripts/TreeSpawner.gd" id="4_jjvhh"]
 [ext_resource type="Script" uid="uid://c7r8x36q13xle" path="res://AnimalRenderer.cs" id="5_kry3j"]
 [ext_resource type="PackedScene" uid="uid://br7k6cgwtbmeg" path="res://Assets/Kudu.glb" id="5_kudu"]
@@ -79,7 +79,11 @@ transform = Transform3D(12, 0, 0, 0, 12, 0, 0, 0, 12, 10, -1.7621095, -10)
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=982253305]
 environment = SubResource("Environment_bo1nx")
 
-[node name="Terrain" parent="." unique_id=1111209924 instance=ExtResource("3_8gbba")]
+[node name="TerrainChunk" type="Node3D" parent="." unique_id=1111209924]
+script = ExtResource("3_chunk")
+ChunkSize = 256.0
+ChunkCoordX = 0
+ChunkCoordZ = 0
 
 [node name="Treespawner" type="Node3D" parent="." unique_id=929476731]
 script = ExtResource("4_jjvhh")

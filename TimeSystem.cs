@@ -9,6 +9,9 @@ namespace BasterBoer.Core.Systems
 	/// </summary>
 	public partial class TimeSystem : Node
 	{
+		[Export] public float DayDurationSeconds = 600f; // 10 minutes per game day
+		[Export] public bool AutoAdvanceTime = true;
+
 		/// <summary>Singleton instance for global access.</summary>
 		public static TimeSystem Instance { get; private set; }
 
@@ -43,6 +46,7 @@ namespace BasterBoer.Core.Systems
 		/// <summary>Whether time progression is paused.</summary>
 		public bool IsPaused { get; private set; }
 
+		private float _timeOfDay = 8.0f; // Start at 8 AM
 		private float _accumulatedTime;
 		private Season _lastKnownSeason;
 
@@ -58,6 +62,8 @@ namespace BasterBoer.Core.Systems
 			CurrentDate = new GameDate(2024, 1, 1);
 			_lastKnownSeason = CurrentDate.Season;
 
+			GameState.Instance.UpdateTimeOfDay(_timeOfDay);
+
 			GD.Print($"[TimeSystem] Initialized. Starting date: {CurrentDate.ToDisplayString()}");
 		}
 
@@ -66,6 +72,9 @@ namespace BasterBoer.Core.Systems
 			if (IsPaused || TimeScale <= 0f) return;
 
 			_accumulatedTime += (float)delta * TimeScale;
+			// Add continuous time-of-day progression
+			float timeProgressPerSecond = 24.0f / DayDurationSeconds;
+			_timeOfDay += (float)delta * timeProgressPerSecond;
 
 			if (_accumulatedTime >= SecondsPerDay)
 			{
@@ -140,6 +149,16 @@ namespace BasterBoer.Core.Systems
 		public float GetDayProgress()
 		{
 			return SecondsPerDay > 0 ? Mathf.Clamp(_accumulatedTime / SecondsPerDay, 0f, 1f) : 0f;
+		}
+
+		/// <summary>
+		/// Get formatted time string for UI
+		/// </summary>
+		public string GetTimeString()
+		{
+			int hours = (int)_timeOfDay;
+			int minutes = (int)((_timeOfDay - hours) * 60);
+			return $"{hours:D2}:{minutes:D2}";
 		}
 	}
 }
