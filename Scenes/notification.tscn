@@ -1,0 +1,51 @@
+[gd_scene load_steps=2 format=3 uid="uid://c3notification000001"]
+
+[ext_resource type="Script" path="res://Scripts/notification.gd" id="1_notif"]
+
+[node name="Notification" type="Control"]
+custom_minimum_size = Vector2(230, 60)
+layout_mode = 3
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -250.0
+offset_right = -20.0
+offset_bottom = 60.0
+grow_horizontal = 0
+script = ExtResource("1_notif")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.1, 0.1, 0.1, 0.8)
+
+[node name="MessageLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = 5.0
+offset_right = -30.0
+offset_bottom = -5.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "Notification"
+vertical_alignment = 1
+autowrap_mode = 2
+
+[node name="DismissButton" type="Button" parent="."]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -25.0
+offset_top = 5.0
+offset_right = -5.0
+offset_bottom = 25.0
+grow_horizontal = 0
+text = "X"

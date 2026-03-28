@@ -9,6 +9,10 @@
 [ext_resource type="Script" uid="uid://be63kmm7ek6ns" path="res://GrassSpawner.cs" id="6_grass"]
 [ext_resource type="PackedScene" uid="uid://lnwkxrj5c6no" path="res://Assets/Plaashuis.glb" id="7_home"]
 [ext_resource type="PackedScene" uid="uid://ba1afqem4p3xf" path="res://Assets/Zebra.glb" id="8_zebra"]
+[ext_resource type="PackedScene" uid="uid://c3hudscene000000001" path="res://Scenes/hud.tscn" id="9_hud"]
+[ext_resource type="Script" uid="uid://61lax43aklsk" path="res://GameState.cs" id="10_gs"]
+[ext_resource type="Script" uid="uid://c2dkt1nxaq60f" path="res://TimeSystem.cs" id="11_ts"]
+[ext_resource type="Script" uid="uid://dojdfkamyhrop" path="res://EconomySystem.cs" id="12_es"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_8gbba"]
 sky_top_color = Color(0.101960786, 0.22745098, 0.36078432, 1)
@@ -64,6 +68,15 @@ shadow_mesh = SubResource("ArrayMesh_sjhpg")
 
 [node name="Main" type="Node3D" unique_id=1916763878]
 
+[node name="GameState" type="Node" parent="."]
+script = ExtResource("10_gs")
+
+[node name="TimeSystem" type="Node" parent="."]
+script = ExtResource("11_ts")
+
+[node name="EconomySystem" type="Node" parent="."]
+script = ExtResource("12_es")
+
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1444903406]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.363763, 5.437194)
 
@@ -72,6 +85,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 55.373, 18, 41.189)
 
 [node name="Bakkie" parent="." unique_id=123269232 instance=ExtResource("2_bo1nx")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5596042, 0.24440229, -0.4283508)
+drive_speed = 30.0
 
 [node name="Home" parent="." unique_id=616552732 instance=ExtResource("7_home")]
 transform = Transform3D(12, 0, 0, 0, 12, 0, 0, 0, 12, 10, -1.7621095, -10)
@@ -104,3 +118,5 @@ MaxScale = 1.8
 DroughtAmount = 0.282
 ColourVariation = 0.399
 RaycastFrom = 50.0
+
+[node name="HUD" parent="." instance=ExtResource("9_hud")]

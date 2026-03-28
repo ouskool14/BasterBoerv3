@@ -1,0 +1,55 @@
+## YOUR TASK
+Create a minimal, immersive HUD that provides essential information without breaking immersion.
+
+### HUD Elements (using Godot Control nodes / CanvasLayer):
+1. **Date & Time Display** (top-right corner):
+   - Show current date: "15 March 2024" format
+   - Show current time of day: "14:30" format (or a sun/moon icon showing position)
+   - Show current season text or icon
+   - Font: Use Google Font "Inter" or "Outfit" — import via theme resource
+
+2. **Financial Summary** (top-left corner, subtle):
+   - Current bank balance in ZAR (formatted: R 125,430)
+   - Monthly income/expense indicator (green arrow up / red arrow down)
+   - Fade in/out — only show when balance changes, then fade after 3 seconds
+
+3. **Compass** (top-centre):
+   - Simple N/S/E/W compass bar that rotates with camera facing direction
+   - Minimalist design — thin bar with cardinal markers
+
+4. **Contextual Interact Prompt** (bottom-centre):
+   - When near an interactable object, show "[E] Interact" or similar
+   - Read from the interact input mapping already defined in project.godot
+
+5. **Notification System** (right side, stacking):
+   - Toast-style notifications that slide in from the right
+   - Used for: animal births, deaths, staff events, financial changes, seasonal transitions
+   - Auto-dismiss after 5 seconds
+   - Queue system — max 3 visible at once, others wait
+
+6. **Vehicle HUD** (bottom, only when in bakkie):
+   - Speed indicator
+   - Fuel gauge (add fuel float to GameState if not present)
+   - Only visible when player is driving
+
+### Design Requirements:
+- Aesthetic: Dark, semi-transparent panels with rounded corners. Think premium game UI.
+- Colours: Warm earth tones (amber, ochre, dark brown) — NOT cold blue/white
+- Animations: All elements should fade/slide in, never pop
+- The HUD should feel like it belongs in the African bush — not a sci-fi game
+- All interactive elements need unique IDs for testing
+- Responsive: Handle different window sizes (the game runs fullscreen mode=3)
+
+### Technical:
+- Create UI scripts in GDScript (acceptable for UI per architecture doc) OR C#
+- Place UI scene as a CanvasLayer child in main.tscn
+- Read data from C# singletons (GameState, TimeSystem, EconomySystem, AnimalSystem)
+- GDScript can access C# singletons via GetNode paths
+
+### DO NOT:
+- Add survival mechanics (no hunger/thirst bars — explicitly forbidden by game design)
+- Add minimap (not in scope yet)
+- Add inventory system (not designed yet)
+
+Commit message: "Feature: Minimal immersive HUD with date, finances, compass, and notification system"
+Push to origin/main when complete.
