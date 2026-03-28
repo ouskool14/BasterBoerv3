@@ -18,7 +18,14 @@ namespace WorldStreaming
 			var coord = new ChunkCoord(ChunkCoordX, ChunkCoordZ);
 			Position = coord.GetWorldOrigin(ChunkSize);
 
+			GD.Print($"[TerrainChunkLoader] Generating chunk ({ChunkCoordX},{ChunkCoordZ}) at {Position}");
+
 			ArrayMesh mesh = TerrainGenerator.GenerateTerrainMesh(coord, ChunkSize);
+			if (mesh == null)
+			{
+				GD.PushError("[TerrainChunkLoader] GenerateTerrainMesh returned null!");
+				return;
+			}
 
 			// Visual mesh
 			var meshInstance = new MeshInstance3D
@@ -27,6 +34,7 @@ namespace WorldStreaming
 				Name = "Terrain"
 			};
 			AddChild(meshInstance);
+			GD.Print($"[TerrainChunkLoader] Mesh added. Surface count: {mesh.GetSurfaceCount()}");
 
 			// Collision — from same mesh, same heights
 			var concaveShape = mesh.CreateTrimeshShape();
@@ -40,6 +48,11 @@ namespace WorldStreaming
 				var staticBody = new StaticBody3D { Name = "TerrainBody" };
 				staticBody.AddChild(collisionShape);
 				AddChild(staticBody);
+				GD.Print($"[TerrainChunkLoader] Collision added.");
+			}
+			else
+			{
+				GD.PushError("[TerrainChunkLoader] CreateTrimeshShape returned null — no collision!");
 			}
 
 			GD.Print($"[TerrainChunkLoader] Chunk ({ChunkCoordX},{ChunkCoordZ}) ready at {Position}");
