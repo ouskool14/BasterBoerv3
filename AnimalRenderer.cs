@@ -273,8 +273,6 @@ public partial class AnimalRenderer : Node3D
 		// Spawn test herds if enabled and AnimalSystem has no herds yet
 		if (SpawnTestHerd && AnimalSystem.Instance.Herds.Count == 0)
 		{
-			float mapX = GameState.Instance?.MapSizeX ?? 2048f;
-			float mapZ = GameState.Instance?.MapSizeZ ?? 2048f;
 			var rng = new System.Random(TestHerdSeed);
 			var allSpecies = new Species[] { Species.Kudu, Species.Zebra, Species.Impala, Species.Buffalo, Species.Wildebeest };
 
