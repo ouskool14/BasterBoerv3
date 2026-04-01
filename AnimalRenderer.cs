@@ -273,29 +273,20 @@ public partial class AnimalRenderer : Node3D
 		// Spawn test herds if enabled and AnimalSystem has no herds yet
 		if (SpawnTestHerd && AnimalSystem.Instance.Herds.Count == 0)
 		{
-			// Herd 1: Kudu
-			AnimalSystem.Instance.CreateHerd(Species.Kudu, TestHerdPosition, TestHerdSeed);
-			GD.Print($"[AnimalRenderer] Spawned test Kudu herd at {TestHerdPosition}");
+			float mapX = GameState.Instance?.MapSizeX ?? 2048f;
+			float mapZ = GameState.Instance?.MapSizeZ ?? 2048f;
+			var rng = new System.Random(TestHerdSeed);
+			var allSpecies = new Species[] { Species.Kudu, Species.Zebra, Species.Impala, Species.Buffalo, Species.Wildebeest };
 
-			// Herd 2: Zebra (offset by 40m)
-			Vector3 zebraPos = TestHerdPosition + new Vector3(40f, 0f, 40f);
-			AnimalSystem.Instance.CreateHerd(Species.Zebra, zebraPos, TestHerdSeed + 1);
-			GD.Print($"[AnimalRenderer] Spawned test Zebra herd at {zebraPos}");
-
-			// Herd 3: Impala (next to Kudu)
-			Vector3 impalaPos = TestHerdPosition + new Vector3(15f, 0f, 0f);
-			AnimalSystem.Instance.CreateHerd(Species.Impala, impalaPos, TestHerdSeed + 2);
-			GD.Print($"[AnimalRenderer] Spawned test Impala herd at {impalaPos}");
-
-			// Herd 4: Buffalo (near Kudu)
-			Vector3 buffaloPos = TestHerdPosition + new Vector3(-20f, 0f, 10f);
-			AnimalSystem.Instance.CreateHerd(Species.Buffalo, buffaloPos, TestHerdSeed + 3);
-			GD.Print($"[AnimalRenderer] Spawned test Buffalo herd at {buffaloPos}");
-
-			// Herd 5: Wildebeest (near Impala)
-			Vector3 wildebeestPos = TestHerdPosition + new Vector3(30f, 0f, -15f);
-			AnimalSystem.Instance.CreateHerd(Species.Wildebeest, wildebeestPos, TestHerdSeed + 4);
-			GD.Print($"[AnimalRenderer] Spawned test Wildebeest herd at {wildebeestPos}");
+			for (int i = 0; i < allSpecies.Length; i++)
+			{
+				float rx = (float)(rng.NextDouble() * mapX - mapX * 0.5f);
+				float rz = (float)(rng.NextDouble() * mapZ - mapZ * 0.5f);
+				float ry = TerrainQuery.GetHeight(rx, rz);
+				Vector3 pos = new Vector3(rx, ry + 1f, rz);
+				AnimalSystem.Instance.CreateHerd(allSpecies[i], pos, TestHerdSeed + i);
+				GD.Print($"[AnimalRenderer] Spawned test {allSpecies[i]} herd at {pos}");
+			}
 		}
 
 		// Warn about species with herds but no mesh
