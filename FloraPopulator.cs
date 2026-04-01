@@ -118,17 +118,12 @@ namespace WorldStreaming
 			}
 
 			// TODO: Load actual low-poly meshes from your asset pipeline
-			string meshPath = $"res://assets/flora/{type.ToString().ToLower()}.obj";
-			Mesh mesh = GD.Load<Mesh>(meshPath);
+			// string meshPath = $"res://assets/flora/{type.ToString().ToLower()}.obj";
+			// Mesh mesh = GD.Load<Mesh>(meshPath);
 			
-			// Fallback to placeholder if asset doesn't exist
-			if (mesh == null)
-			{
-				mesh = CreatePlaceholderMesh(type);
-				GD.PushWarning($"[FloraPopulator] Using placeholder mesh for {type}. " +
-							  $"Expected asset at: {meshPath}");
-			}
-
+			// Fallback to placeholder for now since there are no OBJs
+			Mesh mesh = CreatePlaceholderMesh(type);
+			
 			if (mesh != null)
 			{
 				_floraMeshCache[type] = mesh;
@@ -187,14 +182,99 @@ namespace WorldStreaming
 
 		private static void CreateSimpleBox(SurfaceTool st, float width, float height, float depth)
 		{
-			// Simple box with 8 vertices, 12 triangles - implementation omitted for brevity
-			// TODO: Implement basic box geometry
+			float hw = width / 2f;
+			float hh = height;
+			float hd = depth / 2f;
+
+			// Front face
+			st.AddVertex(new Vector3(-hw, 0, hd));
+			st.AddVertex(new Vector3(hw, 0, hd));
+			st.AddVertex(new Vector3(hw, hh, hd));
+			st.AddVertex(new Vector3(-hw, 0, hd));
+			st.AddVertex(new Vector3(hw, hh, hd));
+			st.AddVertex(new Vector3(-hw, hh, hd));
+
+			// Back face
+			st.AddVertex(new Vector3(hw, 0, -hd));
+			st.AddVertex(new Vector3(-hw, 0, -hd));
+			st.AddVertex(new Vector3(-hw, hh, -hd));
+			st.AddVertex(new Vector3(hw, 0, -hd));
+			st.AddVertex(new Vector3(-hw, hh, -hd));
+			st.AddVertex(new Vector3(hw, hh, -hd));
+
+			// Left face
+			st.AddVertex(new Vector3(-hw, 0, -hd));
+			st.AddVertex(new Vector3(-hw, 0, hd));
+			st.AddVertex(new Vector3(-hw, hh, hd));
+			st.AddVertex(new Vector3(-hw, 0, -hd));
+			st.AddVertex(new Vector3(-hw, hh, hd));
+			st.AddVertex(new Vector3(-hw, hh, -hd));
+
+			// Right face
+			st.AddVertex(new Vector3(hw, 0, hd));
+			st.AddVertex(new Vector3(hw, 0, -hd));
+			st.AddVertex(new Vector3(hw, hh, -hd));
+			st.AddVertex(new Vector3(hw, 0, hd));
+			st.AddVertex(new Vector3(hw, hh, -hd));
+			st.AddVertex(new Vector3(hw, hh, hd));
+
+			// Top face
+			st.AddVertex(new Vector3(-hw, hh, hd));
+			st.AddVertex(new Vector3(hw, hh, hd));
+			st.AddVertex(new Vector3(hw, hh, -hd));
+			st.AddVertex(new Vector3(-hw, hh, hd));
+			st.AddVertex(new Vector3(hw, hh, -hd));
+			st.AddVertex(new Vector3(-hw, hh, -hd));
 		}
 
 		private static void CreateSimpleTree(SurfaceTool st)
 		{
-			// Simple tree representation - implementation omitted for brevity
-			// TODO: Implement basic tree geometry (cylinder + cone)
+			// Trunk: thin cylinder (approximated as 6-sided prism)
+			float trunkRadius = 0.08f;
+			float trunkHeight = 1.5f;
+			int trunkSides = 6;
+
+			for (int i = 0; i < trunkSides; i++)
+			{
+				float angle1 = (float)i / trunkSides * Mathf.Pi * 2f;
+				float angle2 = (float)(i + 1) / trunkSides * Mathf.Pi * 2f;
+
+				float x1 = Mathf.Cos(angle1) * trunkRadius;
+				float z1 = Mathf.Sin(angle1) * trunkRadius;
+				float x2 = Mathf.Cos(angle2) * trunkRadius;
+				float z2 = Mathf.Sin(angle2) * trunkRadius;
+
+				// Trunk side face
+				st.AddVertex(new Vector3(x1, 0, z1));
+				st.AddVertex(new Vector3(x2, 0, z2));
+				st.AddVertex(new Vector3(x2, trunkHeight, z2));
+				st.AddVertex(new Vector3(x1, 0, z1));
+				st.AddVertex(new Vector3(x2, trunkHeight, z2));
+				st.AddVertex(new Vector3(x1, trunkHeight, z1));
+			}
+
+			// Canopy: cone from trunk top
+			float canopyRadius = 0.8f;
+			float canopyHeight = 2.5f;
+			float canopyBase = trunkHeight;
+			float canopyTop = trunkHeight + canopyHeight;
+			int canopySides = 6;
+
+			for (int i = 0; i < canopySides; i++)
+			{
+				float angle1 = (float)i / canopySides * Mathf.Pi * 2f;
+				float angle2 = (float)(i + 1) / canopySides * Mathf.Pi * 2f;
+
+				float x1 = Mathf.Cos(angle1) * canopyRadius;
+				float z1 = Mathf.Sin(angle1) * canopyRadius;
+				float x2 = Mathf.Cos(angle2) * canopyRadius;
+				float z2 = Mathf.Sin(angle2) * canopyRadius;
+
+				// Canopy side (triangle)
+				st.AddVertex(new Vector3(x1, canopyBase, z1));
+				st.AddVertex(new Vector3(x2, canopyBase, z2));
+				st.AddVertex(new Vector3(0, canopyTop, 0));
+			}
 		}
 
 		/// <summary>

@@ -1,0 +1,2837 @@
+﻿diff --git a/AGENTS.md b/AGENTS.md
+deleted file mode 100644
+index 8b3033a..0000000
+--- a/AGENTS.md
++++ /dev/null
+@@ -1,204 +0,0 @@
+-# BasterBoer ΓÇö Agent Instructions
+-
+-## Project Overview
+-BasterBoer is a South African land management simulation in Godot 4.6 with C# (.NET) for simulation and GDScript for UI/events.
+-
+-## Coding Rules
+-
+-### C# (Simulation Layer)
+-- **Data-Oriented Design**: Use `readonly struct` for value types. Pool objects. Zero per-frame allocations.
+-- **Engine Independence**: Simulation code must NOT depend on Godot APIs. Use `GodotObject` only at the boundary.
+-- **Thread Safety**: Godot APIs are single-threaded. Simulation can be threaded but must marshal back to main thread for Godot calls.
+-
+-### GDScript (UI Layer)
+-- Keep GDScript thin ΓÇö delegate to C# systems.
+-- Use typed GDScript where possible.
+-- Signal-based communication between nodes.
+-
+-### Conventions
+-- South African terminology: bakkie, koppie, vlei, stoep, boma, etc.
+-- Currency: ZAR (South African Rand), format as `R 1,234.56`
+-- Land: hectares
+-- Seasons: Southern hemisphere (Dec-Feb = summer)
+-
+-## Build
+-```bash
+-dotnet build "Claude Game.sln"
+-```
+-
+-## Key Files
+-- `docs/ARCHITECTURE.md` ΓÇö Full technical architecture
+-- `GAME_VISION v0.6.md` ΓÇö Game design document
+-- `project.godot` ΓÇö Godot project config
+-
+----
+-
+-## Skills
+-
+-Agent-readable knowledge files live in `skills/`. Every agent must read the
+-skills listed for its role before beginning any task. This is mandatory,
+-not optional ΓÇö skills contain rules that cannot be violated.
+-
+-| Skill File | Contains |
+-|-----------|---------|
+-| `skills/godot4-csharp/SKILL.md` | Godot 4.6 C# patterns, threading, signals, MultiMesh, node lifecycle |
+-| `skills/basterboer-simulation/SKILL.md` | Simulate/render split, herd model, chunk system, system ownership |
+-| `skills/basterboer-performance/SKILL.md` | Performance budget, draw call rules, instancing, asset limits |
+-
+----
+-
+-## Model Reference
+-> These are the intended OpenRouter free models for each agent.
+-> Models are configured in Kilo Code Settings UI ΓÇö not read from this file.
+-> Free tier rate limit: 200 requests/day, 20 requests/minute per model.
+-> Be surgical with context ΓÇö feed only the relevant file(s) + the required SKILL.md(s).
+-
+-| Agent | OpenRouter Model ID |
+-|-------|-------------------|
+-| orchestrator | `nvidia/nemotron-3-super-120b-a12b:free` |
+-| architect (plan) | `openai/gpt-oss-120b:free` |
+-| code | `qwen/qwen3-coder:free` |
+-| gdscript | `deepseek/deepseek-chat-v3-0324:free` |
+-| debug | `deepseek/deepseek-r1:free` |
+-| docs | `mistralai/mistral-small-3.1-24b-instruct:free` |
+-
+----
+-
+-## Agents
+-
+-### orchestrator
+-**Intended model:** `nvidia/nemotron-3-super-120b-a12b:free`
+-**Read before every task:**
+-- `skills/basterboer-simulation/SKILL.md`
+-- `skills/basterboer-performance/SKILL.md`
+-
+-**Role:** Top-level task decomposition, cross-system planning, delegating subtasks to specialist agents.
+-**Use for:** Breaking large features into C# + GDScript subtasks, resolving conflicts between systems,
+-long-horizon planning across AnimalSystem / EconomySystem / WorldMap.
+-**Rule:** Every plan must name which agent handles each subtask and which skill files that agent must read first.
+-Always read `GAME_VISION v0.6.md` and `docs/ARCHITECTURE.md` before planning any cross-system feature.
+-
+----
+-
+-### architect
+-**Intended model:** `openai/gpt-oss-120b:free` ΓÇö configured as the **Plan** mode in Kilo Code Settings.
+-**Read before every task:**
+-- `skills/basterboer-simulation/SKILL.md`
+-- `skills/basterboer-performance/SKILL.md`
+-
+-**Role:** System design, C# architecture decisions, performance architecture review.
+-**Use for:** Designing new C# systems, reviewing performance budgets, ensuring the simulate/render
+-separation is maintained, evaluating new features against the performance budget.
+-**Rule:** No system design is valid if it violates the simulate/render split or exceeds the draw call budget.
+-Reject and redesign before passing to the code agent. Plan mode disallows edits ΓÇö use it for design only.
+-
+----
+-
+-### code
+-**Intended model:** `qwen/qwen3-coder:free`
+-**Read before every task:**
+-- `skills/godot4-csharp/SKILL.md`
+-- `skills/basterboer-simulation/SKILL.md`
+-- `skills/basterboer-performance/SKILL.md`
+-
+-**Role:** C# simulation layer ΓÇö the primary coding agent.
+-**Use for:** AnimalSystem, BreedingSystem, FloraSystem, EconomySystem, FenceSystem,
+-WaterSystem, FireSystem, WorldChunkStreamer, GameState, and all simulation logic.
+-**Context note:** Feed only the specific C# file being worked on + the required SKILL.md files.
+-Do not dump the entire project into context ΓÇö free tier limits apply.
+-**Rules:**
+-- Simulation classes have zero Godot API imports
+-- Use `readonly struct` for per-animal data, `class` for herd brains
+-- All simulation logic in TimeSystem ticks ΓÇö never in `_Process()`
+-- Background threads via `Thread` or `Task` ΓÇö marshal back via `CallDeferred`
+-- No LINQ in hot paths ΓÇö direct array iteration only
+-- Cache all node references in `_Ready()` ΓÇö never call `GetNode()` in loops
+-- Any repeated visual object uses `MultiMeshInstance3D` ΓÇö no exceptions
+-
+----
+-
+-### gdscript
+-**Intended model:** `deepseek/deepseek-chat-v3-0324:free`
+-**Read before every task:**
+-- `skills/godot4-csharp/SKILL.md` (sections 5, 11 ΓÇö signals and interop)
+-
+-**Role:** GDScript UI layer ΓÇö HUD, menus, event signals, scene wiring.
+-**Use for:** All `.gd` files, scene composition, signal connections, UI nodes,
+-and GDScript that calls into C# systems via GameState.
+-**Rules:**
+-- Keep scripts thin ΓÇö logic belongs in C#
+-- Use typed GDScript (`var x: int`, `func foo() -> void:`)
+-- Signal-driven only ΓÇö no polling C# state in `_Process()`
+-- Never instantiate animals, flora, or simulation data from GDScript
+-
+----
+-
+-### debug
+-**Intended model:** `deepseek/deepseek-r1:free`
+-**Read before every task:**
+-- `skills/godot4-csharp/SKILL.md` (section 10 ΓÇö common pitfalls)
+-- `skills/basterboer-performance/SKILL.md`
+-
+-**Role:** Reasoning-first bug diagnosis and performance investigation.
+-**Use for:** Frame rate issues, incorrect simulation outputs, herd behaviour bugs,
+-chunk streaming errors, threading race conditions, incorrect ZAR calculations.
+-**Process:** Reason through the problem fully before proposing a fix.
+-Always provide: the full error or symptom, the relevant system file(s),
+-and the last change made before the issue appeared.
+-**Common causes to check first:**
+-- `GetNode()` called before `_Ready()` ΓåÆ NullReferenceException
+-- Godot API called from background thread ΓåÆ random crash
+-- `InstanceCount` set before `Mesh` on MultiMesh ΓåÆ silent no-op, nothing renders
+-- Signal connected twice ΓåÆ handler fires twice
+-- Simulation logic in `_Process()` ΓåÆ frame budget collapse
+-
+----
+-
+-### docs
+-**Intended model:** `mistralai/mistral-small-3.1-24b-instruct:free`
+-**Read before every task:**
+-- `skills/basterboer-simulation/SKILL.md` (section 2 ΓÇö system ownership map)
+-
+-**Role:** Documentation maintenance, code comments, architecture notes.
+-**Use for:** Updating `docs/ARCHITECTURE.md`, writing XML doc comments on public
+-C# APIs, summarising system interactions, generating changelog entries.
+-**Rules:**
+-- South African English spelling
+-- Document the *why*, not the *what* ΓÇö the code shows what, the comment shows intent
+-- Flag any documentation that contradicts the Game Vision or performance rules
+-- XML doc format for all public C# APIs:
+-  ```csharp
+-  /// <summary>Brief description of what this does.</summary>
+-  /// <param name="herdId">The unique identifier of the herd to query.</param>
+-  /// <returns>Current fear level in range 0ΓÇô1.</returns>
+-  ```
+-
+----
+-
+-## Agent Routing Quick Reference
+-
+-| Task | Agent | Skills Read |
+-|------|-------|-------------|
+-| Plan a new game system end-to-end | orchestrator | simulation + performance |
+-| Design a C# class architecture | architect (plan mode) | simulation + performance |
+-| Write / refactor C# simulation code | code | all three |
+-| Write / fix GDScript or scene logic | gdscript | godot4-csharp (signals + interop) |
+-| Diagnose a bug or performance issue | debug | godot4-csharp (pitfalls) + performance |
+-| Write or update documentation | docs | simulation (system map) |
+-| Cross-system feature (e.g. fire + ecology + economy) | orchestrator ΓåÆ architect ΓåÆ code | all three |
+-| New visual system (e.g. ambient wildlife) | architect ΓåÆ code | all three |
+-| Chunk streaming issue | debug | all three |
+-
+----
+-
+-## Kilo Code Settings ΓÇö One-Time Setup Checklist
+-> Do this once in Kilo Code Settings UI. Models stick per-agent after first use.
+-
+-- [ ] **Orchestrator** mode ΓåÆ set model to `nvidia/nemotron-3-super-120b-a12b:free`
+-- [ ] **Plan** (Architect) mode ΓåÆ set model to `openai/gpt-oss-120b:free`
+-- [ ] **Code** mode ΓåÆ set model to `qwen/qwen3-coder:free`
+-- [ ] **GDScript** custom agent ΓåÆ set model to `deepseek/deepseek-chat-v3-0324:free`
+-- [ ] **Debug** mode ΓåÆ set model to `deepseek/deepseek-r1:free`
+-- [ ] **Docs** custom agent ΓåÆ set model to `mistralai/mistral-small-3.1-24b-instruct:free`
+-- [ ] OpenRouter API key entered under Providers
+-- [ ] Skills folder committed to repo root alongside this file
+\ No newline at end of file
+diff --git a/AnimalRenderer.cs b/AnimalRenderer.cs
+index b5b1be1..ab4a2a7 100644
+--- a/AnimalRenderer.cs
++++ b/AnimalRenderer.cs
+@@ -46,7 +46,9 @@ public partial class AnimalRenderer : Node3D
+ 	private Dictionary<ulong, AnimalRenderState> _animalRenderStates = new();
+ 
+ 	// Constant blend duration for individual offset changes
+-	private const float OffsetShuffleDuration = 0.35f;
++	// At 1.4 m/s walk speed, a 10m offset takes ~7s to walk.
++	// 3s gives a natural trot pace for typical offsets within herd spread radius.
++	private const float OffsetShuffleDuration = 3.0f;
+ 
+ 	// Maximum plausible jump distance before we snap instead of interpolate.
+ 	// If a herd center moves more than this between sim samples, skip the blend.
+@@ -242,10 +244,10 @@ public partial class AnimalRenderer : Node3D
+ 
+ 	public override void _Ready()
+ 	{
+-		// Initialize terrain heightmap (18KB for 4000m at 4m resolution)
++		// Initialize terrain heightmap (18KB for 2048m at 4m resolution)
+ 		var gameState = GetNodeOrNull<GameState>("/root/GameState");
+-		float mapX = gameState?.MapSizeX ?? 4000f;
+-		float mapZ = gameState?.MapSizeZ ?? 4000f;
++		float mapX = gameState?.MapSizeX ?? 2048f;
++		float mapZ = gameState?.MapSizeZ ?? 2048f;
+ 		TerrainQuery.Initialize(mapX, mapZ);
+ 
+ 		// Extract meshes from GLB PackedScenes and map to species
+@@ -279,6 +281,29 @@ public partial class AnimalRenderer : Node3D
+ 			Vector3 zebraPos = TestHerdPosition + new Vector3(40f, 0f, 40f);
+ 			AnimalSystem.Instance.CreateHerd(Species.Zebra, zebraPos, TestHerdSeed + 1);
+ 			GD.Print($"[AnimalRenderer] Spawned test Zebra herd at {zebraPos}");
++
++			// Herd 3: Impala (next to Kudu)
++			Vector3 impalaPos = TestHerdPosition + new Vector3(15f, 0f, 0f);
++			AnimalSystem.Instance.CreateHerd(Species.Impala, impalaPos, TestHerdSeed + 2);
++			GD.Print($"[AnimalRenderer] Spawned test Impala herd at {impalaPos}");
++
++			// Herd 4: Buffalo (near Kudu)
++			Vector3 buffaloPos = TestHerdPosition + new Vector3(-20f, 0f, 10f);
++			AnimalSystem.Instance.CreateHerd(Species.Buffalo, buffaloPos, TestHerdSeed + 3);
++			GD.Print($"[AnimalRenderer] Spawned test Buffalo herd at {buffaloPos}");
++
++			// Herd 5: Wildebeest (near Impala)
++			Vector3 wildebeestPos = TestHerdPosition + new Vector3(30f, 0f, -15f);
++			AnimalSystem.Instance.CreateHerd(Species.Wildebeest, wildebeestPos, TestHerdSeed + 4);
++			GD.Print($"[AnimalRenderer] Spawned test Wildebeest herd at {wildebeestPos}");
++		}
++
++		// Warn about species with herds but no mesh
++		foreach (var herd in AnimalSystem.Instance.Herds)
++		{
++			if (!_speciesMeshes.ContainsKey(herd.Species))
++				GD.PrintErr($"[AnimalRenderer] WARNING: {herd.Species} herd exists but no mesh loaded. " +
++							$"Assign the .glb file to {herd.Species}Scene in the Inspector.");
+ 		}
+ 
+ 		GD.Print($"[AnimalRenderer] Ready. {_speciesMeshes.Count} species meshes loaded.");
+@@ -355,7 +380,11 @@ public partial class AnimalRenderer : Node3D
+ 
+ 			// Skip species we have no mesh for
+ 			if (!_speciesMeshes.ContainsKey(herd.Species))
++			{
++				if (!visibleHerdIds.Contains(herd.HerdId))
++					GD.Print($"[AnimalRenderer] Skipping {herd.Species} herd #{herd.HerdId}: no mesh loaded. Assign the .glb in Inspector.");
+ 				continue;
++			}
+ 
+ 			// Distance cull entire herd
+ 			float herdDistSq = herd.CenterPosition.DistanceSquaredTo(playerPos);
+@@ -495,19 +524,24 @@ public partial class AnimalRenderer : Node3D
+ 		float hRight  = TerrainQuery.GetHeight(x + sampleOffset, z);
+ 		float hForward= TerrainQuery.GetHeight(x, z + sampleOffset);
+ 
+-		Vector3 right   = new Vector3(sampleOffset, hRight   - hCenter, 0f).Normalized();
+-		Vector3 forward = new Vector3(0f,           hForward - hCenter, sampleOffset).Normalized();
+-		Vector3 up      = forward.Cross(right);
+-		if (up.LengthSquared() < 0.001f) // Fallback for near-vertical terrain
+-			up = Vector3.Up;
++		// Reconstruct terrain normal from finite differences
++		// IMPORTANT: In Godot's right-handed system, Z cross X gives upward normal
++		Vector3 tangentX = new Vector3(sampleOffset, hRight - hCenter, 0f);
++		Vector3 tangentZ = new Vector3(0f, hForward - hCenter, sampleOffset);
++		Vector3 up = tangentZ.Cross(tangentX).Normalized();
++
++		// Build orthonormal basis aligned to terrain ΓÇö same pattern as FloraPopulator
++		Vector3 right = Vector3.Up.Cross(up);
++		if (right.LengthSquared() < 0.001f)
++			right = Vector3.Right;
+ 		else
+-			up = up.Normalized();
++			right = right.Normalized();
++
++		Vector3 forward = up.Cross(right).Normalized();
+ 
+-		// Yaw rotation around terrain-derived up vector
+-		// IMPORTANT: terrainBasis * yawBasis applies terrain tilt first, then world-space yaw.
+-		// Reversing this order would produce incorrect results.
+-		Basis terrainBasis = new Basis(right, up, -forward);
+-		Basis yawBasis     = new Basis(Vector3.Up, yaw);
++		// Yaw around terrain-aligned up (not world up) so animals rotate correctly on slopes
++		Basis terrainBasis = new Basis(right, up, forward);
++		Basis yawBasis     = new Basis(up, yaw);
+ 
+ 		return terrainBasis * yawBasis;
+ 	}
+diff --git a/DayNightCycle.cs b/DayNightCycle.cs
+index c897b58..04319fb 100644
+--- a/DayNightCycle.cs
++++ b/DayNightCycle.cs
+@@ -1,195 +1,145 @@
+ using Godot;
+-using System;
++using BasterBoer.Core.Systems;
+ 
+ /// <summary>
+-/// Manages day/night cycle by controlling sun position, lighting, and sky colors.
+-/// Optimized for South African bushveld environment with warm tones.
++/// Drives sun rotation, light colour, ambient light, and sky horizon colour
++/// by sampling hand-tuned keyframes against GameState.TimeOfDay.
++/// Southern Hemisphere bushveld: sun is due NORTH at noon, rises NE, sets NW.
+ /// </summary>
+-public partial class DayNightCycle : DirectionalLight3D
++public partial class DayNightCycle : Node
+ {
+-	[Export] public NodePath WorldEnvironmentPath;
+-	[Export] public float TransitionSpeed = 2.0f;
+-	[Export] public bool EnableSmoothTransitions = true;
+-	
+-	private WorldEnvironment _worldEnvironment;
+-	private ProceduralSkyMaterial _skyMaterial;
+-	private Godot.Environment _environment;
+-	
+-	// South African color palette - warm tones
+-	private readonly Color DawnLight = new Color(1.0f, 0.75f, 0.55f);
+-	private readonly Color DayLight = new Color(1.0f, 0.95f, 0.85f);
+-	private readonly Color GoldenLight = new Color(1.0f, 0.85f, 0.6f);
+-	private readonly Color DuskLight = new Color(0.9f, 0.6f, 0.4f);
+-	private readonly Color NightLight = new Color(0.3f, 0.35f, 0.5f);
+-	
+-	private readonly Color DaySky = new Color(0.4f, 0.6f, 0.85f);
+-	private readonly Color DawnSky = new Color(0.7f, 0.5f, 0.4f);
+-	private readonly Color NightSky = new Color(0.02f, 0.02f, 0.08f);
+-	
+-	// Performance optimization - cache last update time
+-	private float _lastTimeOfDay = -1f;
+-	
++	[Export] public DirectionalLight3D SunLight;
++	[Export] public WorldEnvironment WorldEnv;
++
++	private struct LightKeyframe
++	{
++		public float Time;
++		public float SunAltitude;
++		public float SunAzimuth;
++		public Color SunColor;
++		public float SunEnergy;
++		public Color AmbientColor;
++		public float AmbientEnergy;
++		public Color SkyHorizon;
++		public Color SkyZenith;
++	}
++
++	private LightKeyframe[] _keyframes;
++
+ 	public override void _Ready()
+ 	{
+-		// Get WorldEnvironment reference
+-		if (!WorldEnvironmentPath.IsEmpty)
+-		{
+-			_worldEnvironment = GetNode<WorldEnvironment>(WorldEnvironmentPath);
+-		}
+-		else
+-		{
+-			_worldEnvironment = GetTree().Root.FindChild("WorldEnvironment", true, false) as WorldEnvironment;
+-		}
+-		
+-		if (_worldEnvironment?.Environment?.Sky?.SkyMaterial is ProceduralSkyMaterial skyMat)
+-		{
+-			_skyMaterial = skyMat;
+-			_environment = _worldEnvironment.Environment;
+-		}
+-		
+-		// Initialize with current time
+-		UpdateCycle(GameState.Instance.TimeOfDay, 0f);
++		BuildKeyframes();
+ 	}
+-	
+-	public override void _Process(double delta)
++
++	private void BuildKeyframes()
+ 	{
+-		float currentTime = GameState.Instance.TimeOfDay;
+-		
+-		// Performance optimization - only update when time changes significantly
+-		if (Mathf.Abs(currentTime - _lastTimeOfDay) > 0.01f)
++		_keyframes = new LightKeyframe[]
+ 		{
+-			UpdateCycle(currentTime, (float)delta);
+-			_lastTimeOfDay = currentTime;
+-		}
++			// 00:00 ΓÇö Deep night
++			new() { Time = 0f,    SunAltitude = -40f, SunAzimuth = 0f,   SunColor = new Color(0.05f, 0.05f, 0.15f), SunEnergy = 0f,    AmbientColor = new Color(0.03f, 0.04f, 0.10f), AmbientEnergy = 0.15f, SkyHorizon = new Color(0.02f, 0.03f, 0.12f), SkyZenith = new Color(0.01f, 0.01f, 0.06f) },
++			// 05:00 ΓÇö Pre-dawn
++			new() { Time = 5f,    SunAltitude = -10f, SunAzimuth = 90f,  SunColor = new Color(0.15f, 0.08f, 0.20f), SunEnergy = 0f,    AmbientColor = new Color(0.10f, 0.08f, 0.18f), AmbientEnergy = 0.25f, SkyHorizon = new Color(0.25f, 0.10f, 0.20f), SkyZenith = new Color(0.05f, 0.05f, 0.18f) },
++			// 05:50 ΓÇö Civil twilight
++			new() { Time = 5.8f,  SunAltitude = -2f,  SunAzimuth = 80f,  SunColor = new Color(1.0f, 0.45f, 0.10f),  SunEnergy = 0.3f,  AmbientColor = new Color(0.30f, 0.20f, 0.25f), AmbientEnergy = 0.4f,  SkyHorizon = new Color(0.90f, 0.45f, 0.15f), SkyZenith = new Color(0.12f, 0.15f, 0.40f) },
++			// 06:10 ΓÇö Sunrise
++			new() { Time = 6.1f,  SunAltitude = 4f,   SunAzimuth = 75f,  SunColor = new Color(1.0f, 0.38f, 0.05f),  SunEnergy = 0.8f,  AmbientColor = new Color(0.55f, 0.30f, 0.15f), AmbientEnergy = 0.5f,  SkyHorizon = new Color(1.0f, 0.55f, 0.15f),  SkyZenith = new Color(0.25f, 0.30f, 0.65f) },
++			// 07:00 ΓÇö Low morning sun
++			new() { Time = 7f,    SunAltitude = 15f,  SunAzimuth = 65f,  SunColor = new Color(1.0f, 0.72f, 0.35f),  SunEnergy = 1.2f,  AmbientColor = new Color(0.65f, 0.50f, 0.30f), AmbientEnergy = 0.6f,  SkyHorizon = new Color(0.85f, 0.65f, 0.35f),  SkyZenith = new Color(0.35f, 0.50f, 0.85f) },
++			// 08:30 ΓÇö Morning proper
++			new() { Time = 8.5f,  SunAltitude = 30f,  SunAzimuth = 50f,  SunColor = new Color(1.0f, 0.88f, 0.60f),  SunEnergy = 1.5f,  AmbientColor = new Color(0.70f, 0.65f, 0.50f), AmbientEnergy = 0.7f,  SkyHorizon = new Color(0.65f, 0.72f, 0.90f),  SkyZenith = new Color(0.30f, 0.50f, 0.95f) },
++			// 11:00 ΓÇö Approaching midday
++			new() { Time = 11f,   SunAltitude = 60f,  SunAzimuth = 20f,  SunColor = new Color(1.0f, 0.97f, 0.88f),  SunEnergy = 1.9f,  AmbientColor = new Color(0.75f, 0.75f, 0.70f), AmbientEnergy = 0.8f,  SkyHorizon = new Color(0.72f, 0.80f, 0.95f),  SkyZenith = new Color(0.28f, 0.48f, 0.98f) },
++			// 13:00 ΓÇö Midday (sun due NORTH in Southern Hemisphere)
++			new() { Time = 13f,   SunAltitude = 75f,  SunAzimuth = 0f,   SunColor = new Color(1.0f, 0.99f, 0.95f),  SunEnergy = 2.0f,  AmbientColor = new Color(0.78f, 0.78f, 0.75f), AmbientEnergy = 0.85f, SkyHorizon = new Color(0.75f, 0.82f, 0.95f),  SkyZenith = new Color(0.25f, 0.46f, 1.0f)  },
++			// 15:00 ΓÇö Afternoon
++			new() { Time = 15f,   SunAltitude = 55f,  SunAzimuth = 330f, SunColor = new Color(1.0f, 0.93f, 0.70f),  SunEnergy = 1.8f,  AmbientColor = new Color(0.75f, 0.70f, 0.55f), AmbientEnergy = 0.75f, SkyHorizon = new Color(0.80f, 0.78f, 0.72f),  SkyZenith = new Color(0.28f, 0.46f, 0.95f) },
++			// 16:30 ΓÇö Golden hour
++			new() { Time = 16.5f, SunAltitude = 30f,  SunAzimuth = 300f, SunColor = new Color(1.0f, 0.72f, 0.25f),  SunEnergy = 1.4f,  AmbientColor = new Color(0.80f, 0.60f, 0.35f), AmbientEnergy = 0.65f, SkyHorizon = new Color(0.95f, 0.70f, 0.30f),  SkyZenith = new Color(0.30f, 0.42f, 0.80f) },
++			// 17:30 ΓÇö Sunset
++			new() { Time = 17.5f, SunAltitude = 8f,   SunAzimuth = 285f, SunColor = new Color(1.0f, 0.40f, 0.05f),  SunEnergy = 0.9f,  AmbientColor = new Color(0.70f, 0.38f, 0.18f), AmbientEnergy = 0.55f, SkyHorizon = new Color(1.0f, 0.48f, 0.10f),  SkyZenith = new Color(0.25f, 0.20f, 0.55f) },
++			// 18:00 ΓÇö Last light
++			new() { Time = 18f,   SunAltitude = 0f,   SunAzimuth = 275f, SunColor = new Color(0.90f, 0.25f, 0.05f),  SunEnergy = 0.3f,  AmbientColor = new Color(0.40f, 0.22f, 0.20f), AmbientEnergy = 0.40f, SkyHorizon = new Color(0.80f, 0.30f, 0.12f),  SkyZenith = new Color(0.15f, 0.10f, 0.35f) },
++			// 18:30 ΓÇö Dusk
++			new() { Time = 18.5f, SunAltitude = -8f,  SunAzimuth = 270f, SunColor = new Color(0.30f, 0.10f, 0.20f),  SunEnergy = 0f,    AmbientColor = new Color(0.18f, 0.12f, 0.22f), AmbientEnergy = 0.30f, SkyHorizon = new Color(0.35f, 0.15f, 0.30f),  SkyZenith = new Color(0.06f, 0.05f, 0.20f) },
++			// 20:00 ΓÇö Full dark
++			new() { Time = 20f,   SunAltitude = -30f, SunAzimuth = 180f, SunColor = new Color(0.05f, 0.05f, 0.15f),  SunEnergy = 0f,    AmbientColor = new Color(0.03f, 0.04f, 0.10f), AmbientEnergy = 0.15f, SkyHorizon = new Color(0.02f, 0.03f, 0.12f),  SkyZenith = new Color(0.01f, 0.01f, 0.06f) },
++			// 24:00 ΓÇö Wrap (same as midnight)
++			new() { Time = 24f,   SunAltitude = -40f, SunAzimuth = 0f,   SunColor = new Color(0.05f, 0.05f, 0.15f),  SunEnergy = 0f,    AmbientColor = new Color(0.03f, 0.04f, 0.10f), AmbientEnergy = 0.15f, SkyHorizon = new Color(0.02f, 0.03f, 0.12f),  SkyZenith = new Color(0.01f, 0.01f, 0.06f) },
++		};
+ 	}
+-	
+-	private void UpdateCycle(float timeOfDay, float deltaTime)
++
++	public override void _Process(double delta)
+ 	{
+-		// Calculate sun rotation using realistic arc
+-		UpdateSunRotation(timeOfDay);
+-		
+-		// Get lighting parameters for current time
+-		var (lightColor, lightEnergy, skyColor, ambientEnergy) = GetLightingParameters(timeOfDay);
+-		
+-		// Apply weather modifiers
+-		ApplyWeatherEffects(ref lightColor, ref lightEnergy, ref skyColor, ref ambientEnergy);
+-		
+-		// Apply changes with smooth transitions
+-		if (EnableSmoothTransitions && deltaTime > 0)
+-		{
+-			float lerpFactor = Mathf.Clamp(TransitionSpeed * deltaTime, 0f, 1f);
+-			LightColor = LightColor.Lerp(lightColor, lerpFactor);
+-			LightEnergy = Mathf.Lerp(LightEnergy, lightEnergy, lerpFactor);
+-			
+-			if (_skyMaterial != null)
+-			{
+-				_skyMaterial.SkyTopColor = _skyMaterial.SkyTopColor.Lerp(skyColor, lerpFactor);
+-			}
+-			
+-			if (_environment != null)
+-			{
+-				_environment.AmbientLightEnergy = Mathf.Lerp(_environment.AmbientLightEnergy, ambientEnergy, lerpFactor);
+-			}
+-		}
+-		else
+-		{
+-			LightColor = lightColor;
+-			LightEnergy = lightEnergy;
+-			if (_skyMaterial != null) _skyMaterial.SkyTopColor = skyColor;
+-			if (_environment != null) _environment.AmbientLightEnergy = ambientEnergy;
+-		}
++		if (TimeSystem.Instance == null || SunLight == null || WorldEnv == null) return;
++
++		float t = GameState.Instance.TimeOfDay;
++		LightKeyframe current = SampleKeyframes(t);
++		ApplyToScene(current);
+ 	}
+-	
+-	private void UpdateSunRotation(float timeOfDay)
++
++	private LightKeyframe SampleKeyframes(float time)
+ 	{
+-		// Calculate sun angle - realistic arc from east to west
+-		// Dawn (5:30) to Dusk (18:30) = 13 hours of daylight
+-		float sunriseTime = 5.5f;
+-		float sunsetTime = 18.5f;
+-		
+-		float sunAngle;
+-		if (timeOfDay >= sunriseTime && timeOfDay <= sunsetTime)
++		int next = 0;
++		for (int i = 0; i < _keyframes.Length; i++)
+ 		{
+-			// Daytime - sun above horizon
+-			float dayProgress = (timeOfDay - sunriseTime) / (sunsetTime - sunriseTime);
+-			// Use sine curve for realistic sun arc
+-			sunAngle = Mathf.Lerp(-10f, -170f, dayProgress);
++			if (_keyframes[i].Time > time) { next = i; break; }
++			if (i == _keyframes.Length - 1) next = i;
+ 		}
+-		else
++		int prev = Mathf.Max(0, next - 1);
++
++		LightKeyframe a = _keyframes[prev];
++		LightKeyframe b = _keyframes[next];
++
++		float range = b.Time - a.Time;
++		float blend = range > 0f ? (time - a.Time) / range : 0f;
++		blend = Mathf.Clamp(blend, 0f, 1f);
++
++		return new LightKeyframe
+ 		{
+-			// Nighttime - sun below horizon (moon position)
+-			sunAngle = -90f;
+-		}
+-		
+-		RotationDegrees = new Vector3(sunAngle, 45f, 0f); // 45┬░ Y offset for angled shadows
++			Time          = time,
++			SunAltitude   = Mathf.Lerp(a.SunAltitude, b.SunAltitude, blend),
++			SunAzimuth    = LerpAngle(a.SunAzimuth, b.SunAzimuth, blend),
++			SunColor      = a.SunColor.Lerp(b.SunColor, blend),
++			SunEnergy     = Mathf.Lerp(a.SunEnergy, b.SunEnergy, blend),
++			AmbientColor  = a.AmbientColor.Lerp(b.AmbientColor, blend),
++			AmbientEnergy = Mathf.Lerp(a.AmbientEnergy, b.AmbientEnergy, blend),
++			SkyHorizon    = a.SkyHorizon.Lerp(b.SkyHorizon, blend),
++			SkyZenith     = a.SkyZenith.Lerp(b.SkyZenith, blend),
++		};
+ 	}
+-	
+-	private (Color lightColor, float lightEnergy, Color skyColor, float ambientEnergy) GetLightingParameters(float timeOfDay)
++
++	private void ApplyToScene(LightKeyframe kf)
+ 	{
+-		Color lightColor;
+-		float lightEnergy, ambientEnergy;
+-		Color skyColor;
+-		
+-		if (timeOfDay >= 5.0f && timeOfDay < 7.0f) // Dawn
+-		{
+-			float t = (timeOfDay - 5.0f) / 2.0f;
+-			lightColor = NightLight.Lerp(DawnLight, t);
+-			lightEnergy = Mathf.Lerp(0.1f, 0.8f, t);
+-			skyColor = NightSky.Lerp(DawnSky, t);
+-			ambientEnergy = Mathf.Lerp(0.1f, 0.3f, t);
+-		}
+-		else if (timeOfDay >= 7.0f && timeOfDay < 17.0f) // Day
+-		{
+-			float t = Mathf.Clamp((timeOfDay - 7.0f) / 10.0f, 0f, 1f);
+-			lightColor = DawnLight.Lerp(DayLight, t);
+-			lightEnergy = Mathf.Lerp(0.8f, 1.2f, Mathf.Sin(t * Mathf.Pi)); // Peak at noon
+-			skyColor = DawnSky.Lerp(DaySky, t);
+-			ambientEnergy = Mathf.Lerp(0.3f, 0.5f, t);
+-		}
+-		else if (timeOfDay >= 17.0f && timeOfDay < 19.0f) // Golden Hour to Dusk
+-		{
+-			float t = (timeOfDay - 17.0f) / 2.0f;
+-			lightColor = DayLight.Lerp(DuskLight, t);
+-			lightEnergy = Mathf.Lerp(1.0f, 0.3f, t);
+-			skyColor = DaySky.Lerp(DawnSky, t);
+-			ambientEnergy = Mathf.Lerp(0.5f, 0.2f, t);
+-		}
+-		else // Night
++		// Sun rotation: altitude on X axis, azimuth on Y axis
++		SunLight.RotationDegrees = new Vector3(
++			-kf.SunAltitude,
++			kf.SunAzimuth,
++			0f
++		);
++
++		SunLight.LightColor = kf.SunColor;
++		SunLight.LightEnergy = kf.SunEnergy;
++		SunLight.Visible = kf.SunEnergy > 0.01f;
++
++		// Sky ambient
++		var env = WorldEnv.Environment;
++		if (env == null) return;
++
++		env.AmbientLightColor = kf.AmbientColor;
++		env.AmbientLightEnergy = kf.AmbientEnergy;
++
++		// ProceduralSky colours
++		if (env.Sky?.SkyMaterial is ProceduralSkyMaterial sky)
+ 		{
+-			lightColor = NightLight;
+-			lightEnergy = 0.1f;
+-			skyColor = NightSky;
+-			ambientEnergy = 0.1f;
++			sky.SkyHorizonColor = kf.SkyHorizon;
++			sky.SkyTopColor = kf.SkyZenith;
++			sky.GroundHorizonColor = kf.SkyHorizon.Darkened(0.3f);
+ 		}
+-		
+-		return (lightColor, lightEnergy, skyColor, ambientEnergy);
+ 	}
+-	
+-	private void ApplyWeatherEffects(ref Color lightColor, ref float lightEnergy, ref Color skyColor, ref float ambientEnergy)
++
++	private static float LerpAngle(float from, float to, float t)
+ 	{
+-		WeatherState weather = GameState.Instance.CurrentWeather;
+-		
+-		switch (weather)
+-		{
+-			case WeatherState.Cloudy:
+-				lightEnergy *= 0.85f;
+-				ambientEnergy *= 1.1f;
+-				break;
+-				
+-			case WeatherState.Overcast:
+-				lightColor = lightColor.Lerp(new Color(0.8f, 0.8f, 0.85f), 0.4f);
+-				lightEnergy *= 0.6f;
+-				skyColor = skyColor.Lerp(new Color(0.5f, 0.5f, 0.55f), 0.5f);
+-				ambientEnergy *= 1.3f;
+-				break;
+-				
+-			case WeatherState.Rain:
+-			case WeatherState.Storm:
+-				lightColor = lightColor.Lerp(new Color(0.7f, 0.75f, 0.8f), 0.6f);
+-				lightEnergy *= 0.5f;
+-				skyColor = skyColor.Lerp(new Color(0.4f, 0.4f, 0.45f), 0.7f);
+-				ambientEnergy *= 1.4f;
+-				break;
+-		}
++		float diff = ((to - from + 540f) % 360f) - 180f;
++		return from + diff * t;
+ 	}
+ }
+diff --git a/EconomySystem.cs b/EconomySystem.cs
+index 41c7f28..1afe806 100644
+--- a/EconomySystem.cs
++++ b/EconomySystem.cs
+@@ -22,6 +22,36 @@ namespace BasterBoer.Core.Economy
+ 		/// <summary>Emitted when cash balance changes significantly.</summary>
+ 		public event System.Action<float> OnCashBalanceChanged;
+ 
++		#region Public API ΓÇö Direct spend/balance queries
++
++		/// <summary>Returns true if the current balance can cover the given amount.</summary>
++		/// <param name="amount">Cost in ZAR to check.</param>
++		public bool CanAfford(float amount) => GetBalance() >= amount;
++
++		/// <summary>
++		/// Deducts <paramref name="amount"/> from the cash balance if funds are available.
++		/// </summary>
++		/// <param name="amount">Cost in ZAR.</param>
++		/// <param name="description">Optional transaction description.</param>
++		/// <returns>True if the transaction succeeded.</returns>
++		public bool SpendMoney(float amount, string description = "")
++		{
++			if (!CanAfford(amount)) return false;
++
++			var gameState = GameState.Instance;
++			if (gameState == null) return false;
++
++			gameState.CashBalance -= amount;
++			OnCashBalanceChanged?.Invoke(gameState.CashBalance);
++			GD.Print($"[Economy] Spent R{amount:F2}: {description}. Balance: R{gameState.CashBalance:F2}");
++			return true;
++		}
++
++		/// <summary>Returns the current cash balance in ZAR.</summary>
++		public float GetBalance() => GameState.Instance?.CashBalance ?? 0f;
++
++		#endregion
++
+ 		/// <summary>Current month's revenue accumulator.</summary>
+ 		public float MonthlyRevenue { get; private set; }
+ 
+diff --git a/FenceSystem.cs b/FenceSystem.cs
+index 3052088..fb5d7ea 100644
+--- a/FenceSystem.cs
++++ b/FenceSystem.cs
+@@ -64,6 +64,11 @@ public partial class FenceSystem : Node3D
+ 		}
+ 		_instance = this;
+ 
++		// Force node to origin ΓÇö fence uses world-space coordinates internally,
++		// and child MultiMesh instances are relative to this node's transform.
++		Position = Vector3.Zero;
++		GD.Print($"[FenceSystem] Node position forced to origin. Was at {Position}.");
++
+ 		// Defer initialization so ALL other nodes (including GameState) have
+ 		// had their _Ready() called first, regardless of scene tree order.
+ 		CallDeferred(MethodName.Initialize);
+@@ -79,9 +84,9 @@ public partial class FenceSystem : Node3D
+ 		{
+ 			GD.PrintErr("[FenceSystem] WARNING: GameState.Instance is still null after deferred init. " +
+ 						"GameState node may not be in the scene. " +
+-						"Using default map size 4000x4000 and seed 12345.");
+-			_mapX = 4000f;
+-			_mapZ = 4000f;
++						"Using default map size 2048x2048 and seed 12345.");
++			_mapX = 2048f;
++			_mapZ = 2048f;
+ 			_worldSeed = 12345;
+ 		}
+ 		else
+@@ -175,6 +180,8 @@ public partial class FenceSystem : Node3D
+ 		{
+ 			var st = new SurfaceTool();
+ 			st.CreateFrom(sourceMesh, s);
++			// Must generate normals first, or GenerateTangents crashes Godot internally
++			st.GenerateNormals();
+ 			st.GenerateTangents();
+ 			if (s == 0)
+ 				withTangents = st.Commit();
+@@ -360,7 +367,7 @@ public partial class FenceSystem : Node3D
+ 
+ 	private float GetTerrainHeight(float x, float z)
+ 	{
+-		return TerrainGenerator.GetTerrainHeight(x, z);
++		return LandManagementSim.Terrain.TerrainQuery.GetHeight(x, z);
+ 	}
+ 
+ 	private void GenerateWires(Vector3 start, Vector3 end, FenceSegmentData segment)
+@@ -405,6 +412,10 @@ public partial class FenceSystem : Node3D
+ 		_generationThread.Join();
+ 		GD.Print($"[FenceSystem] BuildVisuals() started. Chunks to build: {_chunkFenceData.Count}");
+ 
++		// Fence data is in world space ΓÇö convert to local space relative to this node
++		Vector3 nodeGlobalPos = GlobalPosition;
++		GD.Print($"[FenceSystem] FenceSystem global position: {nodeGlobalPos}");
++
+ 		int builtWithGeometry = 0;
+ 
+ 		foreach (var kvp in _chunkFenceData)
+@@ -419,13 +430,13 @@ public partial class FenceSystem : Node3D
+ 			bool hasAny = false;
+ 
+ 			if (PoleMesh != null && data.Poles.Count > 0)
+-			{ chunkNode.AddChild(CreateMultiMesh(PoleMesh, data.Poles)); hasAny = true; }
++			{ chunkNode.AddChild(CreateMultiMesh(PoleMesh, data.Poles, nodeGlobalPos)); hasAny = true; }
+ 
+ 			if (StickMesh != null && data.Sticks.Count > 0)
+-			{ chunkNode.AddChild(CreateMultiMesh(StickMesh, data.Sticks)); hasAny = true; }
++			{ chunkNode.AddChild(CreateMultiMesh(StickMesh, data.Sticks, nodeGlobalPos)); hasAny = true; }
+ 
+ 			if (WireMesh != null && data.Wires.Count > 0)
+-			{ chunkNode.AddChild(CreateWireMultiMesh(WireMesh, data.Wires)); hasAny = true; }
++			{ chunkNode.AddChild(CreateWireMultiMesh(WireMesh, data.Wires, nodeGlobalPos)); hasAny = true; }
+ 
+ 			if (hasAny) builtWithGeometry++;
+ 		}
+@@ -455,11 +466,10 @@ public partial class FenceSystem : Node3D
+ 		// Always print where the fence is so we know where to look
+ 		float halfX = (_mapX * MapInsetPercent) / 2f;
+ 		float halfZ = (_mapZ * MapInsetPercent) / 2f;
+-		GD.Print($"[FenceSystem] *** FENCE IS AT perimeter ┬▒({halfX:F0}, {halfZ:F0}) world units from origin. " +
+-				 $"Player must travel to the MAP EDGE to see it! ***");
++		GD.Print($"[FenceSystem] *** FENCE IS AT perimeter ┬▒({halfX:F0}, {halfZ:F0}) world units from origin. ***");
+ 	}
+ 
+-	private MultiMeshInstance3D CreateMultiMesh(Mesh mesh, List<Vector3> positions)
++	private MultiMeshInstance3D CreateMultiMesh(Mesh mesh, List<Vector3> positions, Vector3 parentNodeGlobalPos)
+ 	{
+ 		MultiMesh mm = new MultiMesh
+ 		{
+@@ -470,7 +480,9 @@ public partial class FenceSystem : Node3D
+ 
+ 		for (int i = 0; i < positions.Count; i++)
+ 		{
+-			mm.SetInstanceTransform(i, new Transform3D(Basis.Identity, positions[i]));
++			// Convert world-space position to local space relative to FenceSystem node
++			Vector3 localPos = positions[i] - parentNodeGlobalPos;
++			mm.SetInstanceTransform(i, new Transform3D(Basis.Identity, localPos));
+ 		}
+ 
+ 		var mmi = new MultiMeshInstance3D { Multimesh = mm };
+@@ -478,7 +490,7 @@ public partial class FenceSystem : Node3D
+ 		return mmi;
+ 	}
+ 
+-	private MultiMeshInstance3D CreateWireMultiMesh(Mesh mesh, List<WireInstance> wires)
++	private MultiMeshInstance3D CreateWireMultiMesh(Mesh mesh, List<WireInstance> wires, Vector3 parentNodeGlobalPos)
+ 	{
+ 		MultiMesh mm = new MultiMesh
+ 		{
+@@ -493,10 +505,12 @@ public partial class FenceSystem : Node3D
+ 
+ 			Basis basis = Basis.Identity;
+ 			basis = basis.Rotated(Vector3.Up, w.Yaw);
+-			basis = basis.Rotated(Vector3.Right, -w.Pitch); // Flipped pitch as Godot rotation usually expects negative for upward look
++			basis = basis.Rotated(Vector3.Right, -w.Pitch);
+ 			basis = basis.Scaled(new Vector3(1, 1, w.LengthScale));
+ 
+-			mm.SetInstanceTransform(i, new Transform3D(basis, w.Position));
++			// Convert world-space position to local space relative to FenceSystem node
++			Vector3 localPos = w.Position - parentNodeGlobalPos;
++			mm.SetInstanceTransform(i, new Transform3D(basis, localPos));
+ 		}
+ 
+ 		var mmi = new MultiMeshInstance3D { Multimesh = mm };
+diff --git a/FloraPopulator.cs b/FloraPopulator.cs
+index fcd84d8..782c2cd 100644
+--- a/FloraPopulator.cs
++++ b/FloraPopulator.cs
+@@ -118,17 +118,12 @@ namespace WorldStreaming
+ 			}
+ 
+ 			// TODO: Load actual low-poly meshes from your asset pipeline
+-			string meshPath = $"res://assets/flora/{type.ToString().ToLower()}.obj";
+-			Mesh mesh = GD.Load<Mesh>(meshPath);
++			// string meshPath = $"res://assets/flora/{type.ToString().ToLower()}.obj";
++			// Mesh mesh = GD.Load<Mesh>(meshPath);
++			
++			// Fallback to placeholder for now since there are no OBJs
++			Mesh mesh = CreatePlaceholderMesh(type);
+ 			
+-			// Fallback to placeholder if asset doesn't exist
+-			if (mesh == null)
+-			{
+-				mesh = CreatePlaceholderMesh(type);
+-				GD.PushWarning($"[FloraPopulator] Using placeholder mesh for {type}. " +
+-							  $"Expected asset at: {meshPath}");
+-			}
+-
+ 			if (mesh != null)
+ 			{
+ 				_floraMeshCache[type] = mesh;
+@@ -187,14 +182,99 @@ namespace WorldStreaming
+ 
+ 		private static void CreateSimpleBox(SurfaceTool st, float width, float height, float depth)
+ 		{
+-			// Simple box with 8 vertices, 12 triangles - implementation omitted for brevity
+-			// TODO: Implement basic box geometry
++			float hw = width / 2f;
++			float hh = height;
++			float hd = depth / 2f;
++
++			// Front face
++			st.AddVertex(new Vector3(-hw, 0, hd));
++			st.AddVertex(new Vector3(hw, 0, hd));
++			st.AddVertex(new Vector3(hw, hh, hd));
++			st.AddVertex(new Vector3(-hw, 0, hd));
++			st.AddVertex(new Vector3(hw, hh, hd));
++			st.AddVertex(new Vector3(-hw, hh, hd));
++
++			// Back face
++			st.AddVertex(new Vector3(hw, 0, -hd));
++			st.AddVertex(new Vector3(-hw, 0, -hd));
++			st.AddVertex(new Vector3(-hw, hh, -hd));
++			st.AddVertex(new Vector3(hw, 0, -hd));
++			st.AddVertex(new Vector3(-hw, hh, -hd));
++			st.AddVertex(new Vector3(hw, hh, -hd));
++
++			// Left face
++			st.AddVertex(new Vector3(-hw, 0, -hd));
++			st.AddVertex(new Vector3(-hw, 0, hd));
++			st.AddVertex(new Vector3(-hw, hh, hd));
++			st.AddVertex(new Vector3(-hw, 0, -hd));
++			st.AddVertex(new Vector3(-hw, hh, hd));
++			st.AddVertex(new Vector3(-hw, hh, -hd));
++
++			// Right face
++			st.AddVertex(new Vector3(hw, 0, hd));
++			st.AddVertex(new Vector3(hw, 0, -hd));
++			st.AddVertex(new Vector3(hw, hh, -hd));
++			st.AddVertex(new Vector3(hw, 0, hd));
++			st.AddVertex(new Vector3(hw, hh, -hd));
++			st.AddVertex(new Vector3(hw, hh, hd));
++
++			// Top face
++			st.AddVertex(new Vector3(-hw, hh, hd));
++			st.AddVertex(new Vector3(hw, hh, hd));
++			st.AddVertex(new Vector3(hw, hh, -hd));
++			st.AddVertex(new Vector3(-hw, hh, hd));
++			st.AddVertex(new Vector3(hw, hh, -hd));
++			st.AddVertex(new Vector3(-hw, hh, -hd));
+ 		}
+ 
+ 		private static void CreateSimpleTree(SurfaceTool st)
+ 		{
+-			// Simple tree representation - implementation omitted for brevity
+-			// TODO: Implement basic tree geometry (cylinder + cone)
++			// Trunk: thin cylinder (approximated as 6-sided prism)
++			float trunkRadius = 0.08f;
++			float trunkHeight = 1.5f;
++			int trunkSides = 6;
++
++			for (int i = 0; i < trunkSides; i++)
++			{
++				float angle1 = (float)i / trunkSides * Mathf.Pi * 2f;
++				float angle2 = (float)(i + 1) / trunkSides * Mathf.Pi * 2f;
++
++				float x1 = Mathf.Cos(angle1) * trunkRadius;
++				float z1 = Mathf.Sin(angle1) * trunkRadius;
++				float x2 = Mathf.Cos(angle2) * trunkRadius;
++				float z2 = Mathf.Sin(angle2) * trunkRadius;
++
++				// Trunk side face
++				st.AddVertex(new Vector3(x1, 0, z1));
++				st.AddVertex(new Vector3(x2, 0, z2));
++				st.AddVertex(new Vector3(x2, trunkHeight, z2));
++				st.AddVertex(new Vector3(x1, 0, z1));
++				st.AddVertex(new Vector3(x2, trunkHeight, z2));
++				st.AddVertex(new Vector3(x1, trunkHeight, z1));
++			}
++
++			// Canopy: cone from trunk top
++			float canopyRadius = 0.8f;
++			float canopyHeight = 2.5f;
++			float canopyBase = trunkHeight;
++			float canopyTop = trunkHeight + canopyHeight;
++			int canopySides = 6;
++
++			for (int i = 0; i < canopySides; i++)
++			{
++				float angle1 = (float)i / canopySides * Mathf.Pi * 2f;
++				float angle2 = (float)(i + 1) / canopySides * Mathf.Pi * 2f;
++
++				float x1 = Mathf.Cos(angle1) * canopyRadius;
++				float z1 = Mathf.Sin(angle1) * canopyRadius;
++				float x2 = Mathf.Cos(angle2) * canopyRadius;
++				float z2 = Mathf.Sin(angle2) * canopyRadius;
++
++				// Canopy side (triangle)
++				st.AddVertex(new Vector3(x1, canopyBase, z1));
++				st.AddVertex(new Vector3(x2, canopyBase, z2));
++				st.AddVertex(new Vector3(0, canopyTop, 0));
++			}
+ 		}
+ 
+ 		/// <summary>
+diff --git a/GameState.cs b/GameState.cs
+index 27cfe85..d3d4fd0 100644
+--- a/GameState.cs
++++ b/GameState.cs
+@@ -40,8 +40,8 @@ public partial class GameState : Node
+ 	public float TimeOfDay { get; set; } = 8.0f; // 0.0 to 24.0 hours
+ 	public WeatherState CurrentWeather { get; set; } = WeatherState.Clear;
+ 
+-	[Export] public float MapSizeX { get; set; } = 4000f;
+-	[Export] public float MapSizeZ { get; set; } = 4000f;
++	[Export] public float MapSizeX { get; set; } = 2048f;
++	[Export] public float MapSizeZ { get; set; } = 2048f;
+ 	[Export] public int WorldSeed { get; set; } = 12345;
+ 	[Signal]
+ 	public delegate void WeatherChangedEventHandler(WeatherState newWeather, WeatherState oldWeather);
+diff --git a/HerdBrain.cs b/HerdBrain.cs
+index 236b9ea..5a213c7 100644
+--- a/HerdBrain.cs
++++ b/HerdBrain.cs
+@@ -505,7 +505,7 @@ namespace LandManagementSim.Simulation
+ 					// Precompute variation time AND animation variation together
+ 					float variationRoll = (float)_rng.NextDouble();
+ 
+-					animal.NextVariationTime = 2f + variationRoll * 5f;
++					animal.NextVariationTime = 5f + variationRoll * 10f;
+ 
+ 					// Optional: drive animation variation off same roll (no extra RNG)
+ 					if (variationRoll < 0.3f)
+diff --git a/Scenes/main.tscn b/Scenes/main.tscn
+index d242031..73365bf 100644
+--- a/Scenes/main.tscn
++++ b/Scenes/main.tscn
+@@ -2,15 +2,22 @@
+ 
+ [ext_resource type="PackedScene" uid="uid://7q0v27h5xjmi" path="res://Scenes/boer.tscn" id="1_jjgbg"]
+ [ext_resource type="PackedScene" uid="uid://r2fmexo3f0m" path="res://Scenes/bakkie.tscn" id="2_bo1nx"]
+-[ext_resource type="Script" uid="uid://bq5awlpjjbxue" path="res://TerrainChunkLoader.cs" id="3_chunk"]
+ [ext_resource type="Script" uid="uid://ccrn8fxcbwioy" path="res://Scripts/TreeSpawner.gd" id="4_jjvhh"]
+ [ext_resource type="Script" uid="uid://c7r8x36q13xle" path="res://AnimalRenderer.cs" id="5_kry3j"]
+ [ext_resource type="PackedScene" uid="uid://br7k6cgwtbmeg" path="res://Assets/Kudu.glb" id="5_kudu"]
+ [ext_resource type="Script" uid="uid://be63kmm7ek6ns" path="res://GrassSpawner.cs" id="6_grass"]
+ [ext_resource type="PackedScene" uid="uid://lnwkxrj5c6no" path="res://Assets/Plaashuis.glb" id="7_home"]
+ [ext_resource type="PackedScene" uid="uid://ba1afqem4p3xf" path="res://Assets/Zebra.glb" id="8_zebra"]
+-[ext_resource type="PackedScene" path="res://Scenes/hud.tscn" id="9_hud"]
++[ext_resource type="PackedScene" uid="uid://b0menwsdixmb5" path="res://Scenes/hud.tscn" id="9_hud"]
++[ext_resource type="PackedScene" uid="uid://du8yym112o5jh" path="res://Assets/Impala.glb" id="9_k12tt"]
++[ext_resource type="PackedScene" uid="uid://dqpr1awkdc8ap" path="res://Assets/Buffalol.glb" id="10_b3802"]
+ [ext_resource type="PackedScene" path="res://Scenes/WorldRoot.tscn" id="10_worldroot"]
++[ext_resource type="PackedScene" uid="uid://8dkqcxnudjwb" path="res://Assets/Gnu.glb" id="12_fevyy"]
++[ext_resource type="Script" uid="uid://om75vvfujcwb" path="res://FenceSystem.cs" id="12_wsu2k"]
++[ext_resource type="PackedScene" uid="uid://dvfplmtnd07x6" path="res://Assets/Pole.glb" id="13_k12tt"]
++[ext_resource type="PackedScene" uid="uid://blm28mqilnfcr" path="res://Assets/Stick.glb" id="14_h1bgf"]
++[ext_resource type="PackedScene" uid="uid://c5bpyhbnlffbr" path="res://Assets/Wire.glb" id="15_b3802"]
++[ext_resource type="Script" uid="uid://4kmb57bv8etr" path="res://DayNightCycle.cs" id="16_daynight"]
+ 
+ [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_8gbba"]
+ sky_top_color = Color(0.101960786, 0.22745098, 0.36078432, 1)
+@@ -68,32 +75,44 @@ shadow_mesh = SubResource("ArrayMesh_sjhpg")
+ 
+ [node name="WorldRoot" parent="." unique_id=2142578631 instance=ExtResource("10_worldroot")]
+ 
+-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1444903406]
++[node name="SunLight" type="DirectionalLight3D" parent="." unique_id=1444903406]
+ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.363763, 5.437194)
++shadow_enabled = true
++
++[node name="MoonLight" type="DirectionalLight3D" parent="." unique_id=1444903407]
++transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.363763, -5.437194)
++light_color = Color(0.4, 0.45, 0.6, 1)
++light_energy = 0.15
++shadow_enabled = true
+ 
+ [node name="Boer" parent="." unique_id=548467488 instance=ExtResource("1_jjgbg")]
+ transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 55.373, 18, 41.189)
+ 
+ [node name="Bakkie" parent="." unique_id=123269232 instance=ExtResource("2_bo1nx")]
+-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14.56273, 21.341457, 3.9475455)
+-drive_speed = 30.0
++transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 55.64687, 18.735666, 39.14499)
++drive_speed = 100.0
+ 
+ [node name="Home" parent="." unique_id=616552732 instance=ExtResource("7_home")]
+-transform = Transform3D(12, 0, 0, 0, 12, 0, 0, 0, 12, 9.603388, 17.534986, 29.262611)
++transform = Transform3D(12, 0, 0, 0, 12, 0, 0, 0, 12, 11.468669, 15.058893, 30.060135)
+ 
+ [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=982253305]
+ environment = SubResource("Environment_bo1nx")
+ 
+-[node name="TerrainChunk" type="Node3D" parent="." unique_id=1111209924]
+-script = ExtResource("3_chunk")
++[node name="WorldLighting" type="Node" parent="." unique_id=982253306]
++script = ExtResource("16_daynight")
+ 
+ [node name="Treespawner" type="Node3D" parent="." unique_id=929476731]
+ script = ExtResource("4_jjvhh")
++terrain_width = 2048
++terrain_depth = 2048
+ 
+ [node name="AnimalRenderer" type="Node3D" parent="." unique_id=387894736]
+ script = ExtResource("5_kry3j")
+ KuduScene = ExtResource("5_kudu")
++ImpalaScene = ExtResource("9_k12tt")
++BuffaloScene = ExtResource("10_b3802")
+ ZebraScene = ExtResource("8_zebra")
++WildebeestScene = ExtResource("12_fevyy")
+ 
+ [node name="GrassSpawner" type="Node3D" parent="." unique_id=2000000000]
+ script = ExtResource("6_grass")
+@@ -111,3 +130,9 @@ ColourVariation = 0.399
+ RaycastFrom = 50.0
+ 
+ [node name="HUD" parent="." unique_id=537207281 instance=ExtResource("9_hud")]
++
++[node name="FenceSystem" type="Node3D" parent="." unique_id=976005637]
++script = ExtResource("12_wsu2k")
++PoleMeshScene = ExtResource("13_k12tt")
++StickMeshScene = ExtResource("14_h1bgf")
++WireMeshScene = ExtResource("15_b3802")
+diff --git a/Scenes/terrain.tscn b/Scenes/terrain.tscn
+deleted file mode 100644
+index dd2f71d..0000000
+--- a/Scenes/terrain.tscn
++++ /dev/null
+@@ -1,8 +0,0 @@
+-[gd_scene format=3 uid="uid://jwag4revk61r"]
+-
+-[ext_resource type="Script" uid="uid://cl1tldp4hxjef" path="res://Scripts/Terrain.gd" id="1_g24sy"]
+-
+-[node name="Terrain" type="StaticBody3D" unique_id=1111209924]
+-script = ExtResource("1_g24sy")
+-
+-[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1633945452]
+diff --git a/Scripts/Bakkie.gd b/Scripts/Bakkie.gd
+index 107eb3f..ed05ffe 100644
+--- a/Scripts/Bakkie.gd
++++ b/Scripts/Bakkie.gd
+@@ -14,9 +14,31 @@ extends CharacterBody3D
+ # ΓöÇΓöÇ STATE ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ var _driver : Node = null
+ var _has_driver : bool = false
++var _streamer : Node = null    # cached WorldChunkStreamer reference
+ 
+ var gravity : float = ProjectSettings.get_setting("physics/3d/default_gravity")
+ 
++func _ready() -> void:
++	# Cache streamer reference via singleton ΓÇö no more find_child()
++	_streamer = WorldChunkStreamer.Instance
++
++	# If terrain isn't loaded yet, wait for the signal from WorldChunkStreamer
++	# that confirms the center chunk's collision is in the scene tree.
++	if _streamer and not _streamer.IsInitialLoadComplete:
++		await _streamer.InitialTerrainReady
++
++	_snap_to_terrain()
++
++func _snap_to_terrain() -> void:
++	if _streamer and _streamer.has_method("GetTerrainHeightAt"):
++		var h : float = _streamer.GetTerrainHeightAt(global_position.x, global_position.z)
++		global_position.y = h + 1.0
++		velocity.y = 0.0
++		move_and_slide()
++		print("[Bakkie] Snapped to terrain height: ", h, " at (", global_position.x, ", ", global_position.z, ")")
++	else:
++		push_warning("[Bakkie] WorldChunkStreamer not found ΓÇö using scene Y position.")
++
+ # ΓöÇΓöÇ API (called by Player) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ func set_driver(player: Node) -> void:
+ 	print("set_driver called!")
+@@ -34,6 +56,30 @@ func _physics_process(delta: float) -> void:
+ 	if not is_on_floor():
+ 		velocity.y -= gravity * delta
+ 
++		# Anti-Void Protection (raycast-based)
++		# Raycast down to find the actual collision surface, not a mathematical height.
++		# This avoids the bounce loop caused by height/collision mismatch.
++		var space_state := get_world_3d().direct_space_state
++		var ray_origin := global_position + Vector3.UP * 2.0  # start slightly above
++		var ray_end := global_position + Vector3.DOWN * 50.0  # cast 50m below
++		var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
++		query.collision_mask = 1  # default physics layer (terrain)
++		var result := space_state.intersect_ray(query)
++
++		if result:
++			var ground_y : float = result.position.y
++			# Only teleport up if we are 3+ metres below the actual ground surface
++			if global_position.y < ground_y - 3.0:
++				global_position.y = ground_y + 1.0
++				velocity.y = 0.0
++		else:
++			# No ground found within 50m ΓÇö fallback to streamer math height
++			if _streamer and _streamer.has_method("GetTerrainHeightAt"):
++				var h : float = _streamer.GetTerrainHeightAt(global_position.x, global_position.z)
++				if global_position.y < h - 5.0:
++					global_position.y = h + 1.0
++					velocity.y = 0.0
++
+ 	if not _has_driver:
+ 		# No driver ΓÇö coast to a stop
+ 		velocity.x = move_toward(velocity.x, 0, friction * delta)
+@@ -47,7 +93,7 @@ func _physics_process(delta: float) -> void:
+ 
+ 	# Turn (only when moving)
+ 	if abs(velocity.length()) > 0.5:
+-		rotation.y += steer * turn_speed * delta * sign(throttle if throttle != 0 else 1)
++		rotation.y += steer * turn_speed * delta * sign(throttle if throttle != 0.0 else 1.0)
+ 
+ 	# Accelerate forward / reverse
+ 	var forward := -global_transform.basis.z
+diff --git a/Scripts/Core/Bootstrap.cs b/Scripts/Core/Bootstrap.cs
+index 5372f4f..2f64f41 100644
+--- a/Scripts/Core/Bootstrap.cs
++++ b/Scripts/Core/Bootstrap.cs
+@@ -114,6 +114,28 @@ namespace BasterBoer.Core
+ 			GD.Print("[Bootstrap] SaveManager ready.");
+ 
+ 			GD.Print("[Bootstrap] All systems initialized successfully.");
++
++			// Wire WorldChunkStreamer to player node (deferred ΓÇö main scene loads after autoloads)
++			CallDeferred(MethodName.WirePlayerToChunkStreamer);
++		}
++
++		/// <summary>
++		/// Finds the player node in the main scene and wires it to WorldChunkStreamer.
++		/// Called deferred because autoloads load before the main scene.
++		/// </summary>
++		private void WirePlayerToChunkStreamer()
++		{
++			var player = GetTree().Root.FindChild("Boer", true, false) as Node3D;
++			var streamer = WorldStreaming.WorldChunkStreamer.Instance;
++			if (player != null && streamer != null)
++			{
++				streamer.SetPlayerNode(player);
++				GD.Print("[Bootstrap] WorldChunkStreamer wired to player node.");
++			}
++			else
++			{
++				GD.PrintErr("[Bootstrap] Could not wire WorldChunkStreamer: player or streamer not found.");
++			}
+ 		}
+ 
+ 		/// <summary>
+diff --git a/Scripts/Persistence/SaveManager.cs b/Scripts/Persistence/SaveManager.cs
+index f4a524f..3dacf43 100644
+--- a/Scripts/Persistence/SaveManager.cs
++++ b/Scripts/Persistence/SaveManager.cs
+@@ -213,8 +213,8 @@ namespace BasterBoer.Persistence
+ 				SaveVersion = CurrentVersion,
+ 				GameVersion = "0.1",
+ 				WorldSeed = gameState?.WorldSeed ?? 12345,
+-				MapSizeX = gameState?.MapSizeX ?? 4000f,
+-				MapSizeZ = gameState?.MapSizeZ ?? 4000f
++				MapSizeX = gameState?.MapSizeX ?? 2048f,
++				MapSizeZ = gameState?.MapSizeZ ?? 2048f
+ 			};
+ 
+ 			// Time
+diff --git a/Scripts/Player.gd b/Scripts/Player.gd
+index e45d870..83a6aee 100644
+--- a/Scripts/Player.gd
++++ b/Scripts/Player.gd
+@@ -32,12 +32,32 @@ var gravity        : float = ProjectSettings.get_setting("physics/3d/default_gra
+ var _cam_yaw       : float = 0.0   # horizontal camera rotation (Y axis)
+ var _cam_pitch     : float = -20.0 # vertical camera rotation (X axis), start slightly above
+ var _current_bakkie : Node3D = null # reference to the bakkie node we are driving
++var _streamer      : Node = null    # cached WorldChunkStreamer reference
+ 
+-# ΓöÇΓöÇ READY ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ func _ready() -> void:
+ 	spring_arm.spring_length = cam_distance
+ 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+ 
++	# Cache streamer reference via singleton ΓÇö no more find_child()
++	_streamer = WorldChunkStreamer.Instance
++
++	# If terrain isn't loaded yet, wait for the signal from WorldChunkStreamer
++	# that confirms the center chunk's collision is in the scene tree.
++	if _streamer and not _streamer.IsInitialLoadComplete:
++		await _streamer.InitialTerrainReady
++
++	_snap_to_terrain()
++
++func _snap_to_terrain() -> void:
++	if _streamer and _streamer.has_method("GetTerrainHeightAt"):
++		var h : float = _streamer.GetTerrainHeightAt(global_position.x, global_position.z)
++		global_position.y = h + 1.0
++		velocity.y = 0.0
++		move_and_slide()
++		print("[Player] Snapped to terrain height: ", h, " at (", global_position.x, ", ", global_position.z, ")")
++	else:
++		push_warning("[Player] WorldChunkStreamer not found ΓÇö using scene Y position.")
++
+ # ΓöÇΓöÇ INPUT ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ func _unhandled_input(event: InputEvent) -> void:
+ 	# Mouse look
+@@ -69,10 +89,33 @@ func _physics_process(delta: float) -> void:
+ 
+ # ΓöÇΓöÇ ON FOOT ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+ func _process_foot(delta: float) -> void:
+-	# Gravity
++	# Gravity and Anti-Void Protection (raycast-based)
+ 	if not is_on_floor():
+ 		velocity.y -= gravity * delta
+ 
++		# Raycast down to find the actual collision surface, not a mathematical height.
++		# This avoids the bounce loop caused by height/collision mismatch.
++		var space_state := get_world_3d().direct_space_state
++		var ray_origin := global_position + Vector3.UP * 2.0  # start slightly above
++		var ray_end := global_position + Vector3.DOWN * 50.0  # cast 50m below
++		var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
++		query.collision_mask = 1  # default physics layer (terrain)
++		var result := space_state.intersect_ray(query)
++
++		if result:
++			var ground_y : float = result.position.y
++			# Only teleport up if we are 3+ metres below the actual ground surface
++			if global_position.y < ground_y - 3.0:
++				global_position.y = ground_y + 1.0
++				velocity.y = 0.0
++		else:
++			# No ground found within 50m ΓÇö fallback to streamer math height
++			if _streamer and _streamer.has_method("GetTerrainHeightAt"):
++				var h : float = _streamer.GetTerrainHeightAt(global_position.x, global_position.z)
++				if global_position.y < h - 5.0:
++					global_position.y = h + 1.0
++					velocity.y = 0.0
++
+ 	# Jump
+ 	if Input.is_action_just_pressed("jump") and is_on_floor():
+ 		velocity.y = jump_velocity
+@@ -98,7 +141,7 @@ func _process_foot(delta: float) -> void:
+ 	move_and_slide()
+ 
+ # ΓöÇΓöÇ BAKKIE ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-func _process_bakkie(delta: float) -> void:
++func _process_bakkie(_delta: float) -> void:
+ 	# Driving is handled by the Bakkie node itself.
+ 	# Player just sits inside and the camera follows the bakkie's position.
+ 	# We keep Player's global_position glued to the bakkie seat.
+diff --git a/Scripts/Terrain.gd b/Scripts/Terrain.gd
+deleted file mode 100644
+index 27d2dd3..0000000
+--- a/Scripts/Terrain.gd
++++ /dev/null
+@@ -1,145 +0,0 @@
+-## Terrain.gd
+-## Savanna Sim ΓÇö v0.2
+-## Procedural low-poly terrain using FastNoiseLite.
+-## Attach to: StaticBody3D
+-## Children needed: MeshInstance3D
+-
+-extends StaticBody3D
+-
+-# ΓöÇΓöÇ NODES ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-@onready var mesh_instance : MeshInstance3D = $MeshInstance3D
+-
+-# ΓöÇΓöÇ SETTINGS ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-@export var width           : int   = 200
+-@export var depth           : int   = 200
+-@export var subdivisions    : int   = 80
+-@export var height_scale    : float = 12.0
+-@export var noise_frequency : float = 0.008
+-
+-# ΓöÇΓöÇ COLOURS ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-@export var col_low  : Color = Color(0.76, 0.60, 0.42)
+-@export var col_mid  : Color = Color(0.55, 0.52, 0.28)
+-@export var col_high : Color = Color(0.42, 0.38, 0.22)
+-
+-# ΓöÇΓöÇ READY ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-func _ready() -> void:
+-	call_deferred("_generate")
+-
+-# ΓöÇΓöÇ GENERATE ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-func _generate() -> void:
+-	# Detail noise ΓÇö actual hill shapes
+-	var noise := FastNoiseLite.new()
+-	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+-	noise.frequency  = noise_frequency
+-	noise.seed       = randi()
+-
+-	# Mask noise ΓÇö controls where hills are allowed
+-	var mask := FastNoiseLite.new()
+-	mask.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+-	mask.frequency  = 0.003	# very low frequency = large flat zones
+-	mask.seed       = randi()
+-
+-	var step_x : float = float(width) / subdivisions
+-	var step_z : float = float(depth) / subdivisions
+-
+-	# Build height grid first
+-	var heights := []
+-	for row in range(subdivisions + 1):
+-		var row_arr := []
+-		for col in range(subdivisions + 1):
+-			var x : float = col * step_x - width * 0.5
+-			var z : float = row * step_z - depth * 0.5
+-			var m : float = clamp(mask.get_noise_2d(x, z) * 2.0, 0.0, 1.0)
+-			m = pow(m, 3.0)  # pushes 80% of values toward zero
+-			var h : float = noise.get_noise_2d(x, z) * height_scale * m
+-			row_arr.append(h)
+-		heights.append(row_arr)
+-
+-	# Build mesh arrays ΓÇö flat shaded (each tri has its own 3 verts)
+-	var verts   := PackedVector3Array()
+-	var normals := PackedVector3Array()
+-	var colors  := PackedColorArray()
+-	var indices := PackedInt32Array()
+-
+-	for row in range(subdivisions):
+-		for col in range(subdivisions):
+-			var x0 : float = col       * step_x - width * 0.5
+-			var x1 : float = (col + 1) * step_x - width * 0.5
+-			var z0 : float = row       * step_z - depth * 0.5
+-			var z1 : float = (row + 1) * step_z - depth * 0.5
+-
+-			var h00 : float = heights[row][col]
+-			var h10 : float = heights[row][col + 1]
+-			var h01 : float = heights[row + 1][col]
+-			var h11 : float = heights[row + 1][col + 1]
+-
+-			var v0 := Vector3(x0, h00, z0)
+-			var v1 := Vector3(x1, h10, z0)
+-			var v2 := Vector3(x0, h01, z1)
+-			var v3 := Vector3(x1, h10, z0)
+-			var v4 := Vector3(x1, h11, z1)
+-			var v5 := Vector3(x0, h01, z1)
+-
+-			var n1 := (v1 - v0).cross(v2 - v0).normalized()
+-			var n2 := (v4 - v3).cross(v5 - v3).normalized()
+-
+-			var c1 := _height_color((h00 + h01 + h10) / 3.0)
+-			var c2 := _height_color((h10 + h01 + h11) / 3.0)
+-
+-			var base : int = verts.size()
+-			verts.append_array([v0, v1, v2, v3, v4, v5])
+-			normals.append_array([n1, n1, n1, n2, n2, n2])
+-			colors.append_array([c1, c1, c1, c2, c2, c2])
+-			indices.append_array([base, base+1, base+2, base+3, base+4, base+5])
+-
+-	# Build ArrayMesh
+-	var arrays := []
+-	arrays.resize(Mesh.ARRAY_MAX)
+-	arrays[Mesh.ARRAY_VERTEX] = verts
+-	arrays[Mesh.ARRAY_NORMAL] = normals
+-	arrays[Mesh.ARRAY_COLOR]  = colors
+-	arrays[Mesh.ARRAY_INDEX]  = indices
+-
+-	var arr_mesh := ArrayMesh.new()
+-	arr_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+-
+-	# Material
+-	var mat := StandardMaterial3D.new()
+-	mat.vertex_color_use_as_albedo = true
+-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+-	arr_mesh.surface_set_material(0, mat)
+-
+-	mesh_instance.mesh = arr_mesh
+-
+-	# Build HeightMapShape3D ΓÇö much more reliable for terrain
+-	var hmap := HeightMapShape3D.new()
+-	hmap.map_width  = subdivisions + 1
+-	hmap.map_depth  = subdivisions + 1
+-
+-	var map_data := PackedFloat32Array()
+-	for row in range(subdivisions + 1):
+-		for col in range(subdivisions + 1):
+-			map_data.append(heights[row][col])
+-
+-	hmap.map_data = map_data
+-
+-	var col_shape := CollisionShape3D.new()
+-	col_shape.shape = hmap
+-
+-	# Scale to match terrain size
+-	col_shape.scale = Vector3(
+-		float(width)  / subdivisions,
+-		1.0,
+-		float(depth)  / subdivisions
+-	)
+-
+-	add_child(col_shape)
+-	print("Collision set: ", col_shape.shape)
+-
+-# ΓöÇΓöÇ COLOUR BY HEIGHT ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-func _height_color(h: float) -> Color:
+-	var t : float = clamp(h / height_scale, -1.0, 1.0) * 0.5 + 0.5
+-	if t < 0.4:
+-		return col_low.lerp(col_mid, t / 0.4)
+-	else:
+-		return col_mid.lerp(col_high, (t - 0.4) / 0.6)
+diff --git a/Scripts/Terrain.gd.uid b/Scripts/Terrain.gd.uid
+deleted file mode 100644
+index 8610d27..0000000
+--- a/Scripts/Terrain.gd.uid
++++ /dev/null
+@@ -1 +0,0 @@
+-uid://daucoht24sy8k
+diff --git a/Scripts/TreeSpawner.gd b/Scripts/TreeSpawner.gd
+index 6ec58ab..33d069c 100644
+--- a/Scripts/TreeSpawner.gd
++++ b/Scripts/TreeSpawner.gd
+@@ -67,13 +67,13 @@ func _spawn_batch(rng: RandomNumberGenerator, space: PhysicsDirectSpaceState3D,
+ 		var node : Node3D
+ 
+ 		if is_shrub:
+-			var scale := rng.randf_range(0.3, 0.8)
+-			node = _build_shrub(scale)
++			var spawn_scale := rng.randf_range(0.3, 0.8)
++			node = _build_shrub(spawn_scale)
+ 		else:
+-			var scale := rng.randf_range(0.8, 1.6)
++			var spawn_scale := rng.randf_range(0.8, 1.6)
+ 			var roll  := rng.randf()
+ 			var type  := "acacia" if roll < 0.6 else ("thorn" if roll < 0.85 else "dead")
+-			node = _build_tree(type, scale)
++			node = _build_tree(type, spawn_scale)
+ 
+ 		node.position   = Vector3(x, h, z)
+ 		node.rotation.y = rng.randf_range(0.0, TAU)
+@@ -83,46 +83,46 @@ func _spawn_batch(rng: RandomNumberGenerator, space: PhysicsDirectSpaceState3D,
+ 	print("%s spawned: %d" % ["Shrubs" if is_shrub else "Trees", spawned])
+ 
+ # ΓöÇΓöÇ BUILD TREE ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-func _build_tree(type: String, scale: float) -> Node3D:
++func _build_tree(type: String, spawn_scale: float) -> Node3D:
+ 	var root := Node3D.new()
+ 
+ 	match type:
+ 		"acacia":
+-			var trunk := _make_cylinder(0.08 * scale, 0.12 * scale, 1.8 * scale, 5, col_acacia_trunk)
+-			trunk.position.y = 0.9 * scale
++			var trunk := _make_cylinder(0.08 * spawn_scale, 0.12 * spawn_scale, 1.8 * spawn_scale, 5, col_acacia_trunk)
++			trunk.position.y = 0.9 * spawn_scale
+ 			root.add_child(trunk)
+ 
+-			var canopy := _make_cylinder(0.0, 1.6 * scale, 0.5 * scale, 6, col_acacia_canopy)
+-			canopy.position.y = 1.9 * scale
++			var canopy := _make_cylinder(0.0, 1.6 * spawn_scale, 0.5 * spawn_scale, 6, col_acacia_canopy)
++			canopy.position.y = 1.9 * spawn_scale
+ 			root.add_child(canopy)
+ 
+ 		"thorn":
+-			var trunk := _make_cylinder(0.06 * scale, 0.10 * scale, 1.2 * scale, 5, col_acacia_trunk)
+-			trunk.position.y = 0.6 * scale
++			var trunk := _make_cylinder(0.06 * spawn_scale, 0.10 * spawn_scale, 1.2 * spawn_scale, 5, col_acacia_trunk)
++			trunk.position.y = 0.6 * spawn_scale
+ 			root.add_child(trunk)
+ 
+-			var canopy := _make_sphere(0.9 * scale, 0.8 * scale, 5, 3, col_thorn_canopy)
+-			canopy.position.y = 1.4 * scale
++			var canopy := _make_sphere(0.9 * spawn_scale, 0.8 * spawn_scale, 5, 3, col_thorn_canopy)
++			canopy.position.y = 1.4 * spawn_scale
+ 			root.add_child(canopy)
+ 
+ 		"dead":
+-			var trunk := _make_cylinder(0.04 * scale, 0.10 * scale, 2.0 * scale, 4, col_dead_trunk)
+-			trunk.position.y = 1.0 * scale
++			var trunk := _make_cylinder(0.04 * spawn_scale, 0.10 * spawn_scale, 2.0 * spawn_scale, 4, col_dead_trunk)
++			trunk.position.y = 1.0 * spawn_scale
+ 			root.add_child(trunk)
+ 
+ 			for i in range(2):
+-				var branch := _make_cylinder(0.02 * scale, 0.04 * scale, 0.8 * scale, 4, col_dead_trunk)
+-				branch.position.y = 1.6 * scale
++				var branch := _make_cylinder(0.02 * spawn_scale, 0.04 * spawn_scale, 0.8 * spawn_scale, 4, col_dead_trunk)
++				branch.position.y = 1.6 * spawn_scale
+ 				branch.rotation.z = 0.6 * (1 if i == 0 else -1)
+ 				root.add_child(branch)
+ 
+ 	return root
+ 
+ # ΓöÇΓöÇ BUILD SHRUB ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+-func _build_shrub(scale: float) -> Node3D:
++func _build_shrub(spawn_scale: float) -> Node3D:
+ 	var root := Node3D.new()
+-	var mesh := _make_sphere(0.5 * scale, 0.4 * scale, 4, 2, col_shrub)
+-	mesh.position.y = 0.2 * scale
++	var mesh := _make_sphere(0.5 * spawn_scale, 0.4 * spawn_scale, 4, 2, col_shrub)
++	mesh.position.y = 0.2 * spawn_scale
+ 	root.add_child(mesh)
+ 	return root
+ 
+diff --git a/Scripts/hud.gd b/Scripts/hud.gd
+index 9ffd50b..ec03f29 100644
+--- a/Scripts/hud.gd
++++ b/Scripts/hud.gd
+@@ -51,7 +51,7 @@ func _ready():
+ 		if _time_system.has_signal("OnYearPassed"):
+ 			_time_system.OnYearPassed.connect(update_date_time)
+ 		if _time_system.has_signal("OnSeasonalEvent"):
+-			_time_system.OnSeasonalEvent.connect(func(event, date): add_notification("Seasonal Event: " + str(event)))
++			_time_system.OnSeasonalEvent.connect(func(event, _date): add_notification("Seasonal Event: " + str(event)))
+ 
+ 	# Connect signals from EconomySystem
+ 	if _economy_system:
+diff --git a/TerrainChunkLoader.cs b/TerrainChunkLoader.cs
+deleted file mode 100644
+index 668d577..0000000
+--- a/TerrainChunkLoader.cs
++++ /dev/null
+@@ -1,63 +0,0 @@
+-using Godot;
+-
+-namespace WorldStreaming
+-{
+-	/// <summary>
+-	/// Generates a single terrain chunk with mesh + collision from TerrainGenerator.
+-	/// This is the ONLY terrain surface in the scene ΓÇö no GDScript terrain.
+-	/// All height queries (animals, spawning, navigation) go through TerrainGenerator.cs.
+-	/// </summary>
+-	public partial class TerrainChunkLoader : Node3D
+-	{
+-		[Export] public float ChunkSize { get; set; } = 256f;
+-		[Export] public int ChunkCoordX { get; set; } = 0;
+-		[Export] public int ChunkCoordZ { get; set; } = 0;
+-
+-		public override void _Ready()
+-		{
+-			// Sample noise from a region centered on world origin
+-			// Mesh vertices are local-space centered (range: -128 to +128)
+-			// Node position at (0,0,0) means terrain is centered on the origin
+-			var worldOrigin = new Vector3(-ChunkSize * 0.5f, 0f, -ChunkSize * 0.5f);
+-
+-			GD.Print($"[TerrainChunkLoader] Generating terrain centered at origin. Noise origin: {worldOrigin}");
+-
+-			ArrayMesh mesh = TerrainGenerator.GenerateTerrainMesh(worldOrigin, ChunkSize);
+-			if (mesh == null)
+-			{
+-				GD.PushError("[TerrainChunkLoader] GenerateTerrainMesh returned null!");
+-				return;
+-			}
+-
+-			// Visual mesh
+-			var meshInstance = new MeshInstance3D
+-			{
+-				Mesh = mesh,
+-				Name = "Terrain"
+-			};
+-			AddChild(meshInstance);
+-			GD.Print($"[TerrainChunkLoader] Mesh added. Surface count: {mesh.GetSurfaceCount()}");
+-
+-			// Collision ΓÇö from same mesh, same heights
+-			var concaveShape = mesh.CreateTrimeshShape();
+-			if (concaveShape != null)
+-			{
+-				var collisionShape = new CollisionShape3D
+-				{
+-					Shape = concaveShape,
+-					Name = "TerrainCollision"
+-				};
+-				var staticBody = new StaticBody3D { Name = "TerrainBody" };
+-				staticBody.AddChild(collisionShape);
+-				AddChild(staticBody);
+-				GD.Print($"[TerrainChunkLoader] Collision added.");
+-			}
+-			else
+-			{
+-				GD.PushError("[TerrainChunkLoader] CreateTrimeshShape returned null ΓÇö no collision!");
+-			}
+-
+-			GD.Print($"[TerrainChunkLoader] Chunk ({ChunkCoordX},{ChunkCoordZ}) ready at {Position}");
+-		}
+-	}
+-}
+diff --git a/TerrainGenerator.cs b/TerrainGenerator.cs
+index b9e1c15..03b9998 100644
+--- a/TerrainGenerator.cs
++++ b/TerrainGenerator.cs
+@@ -12,7 +12,7 @@ namespace WorldStreaming
+ 		// South African landscape parameters
+ 		private const float HEIGHT_SCALE = 25f;      // Maximum elevation variation
+ 		private const float NOISE_FREQUENCY = 0.003f; // Terrain feature scale
+-		private const int TERRAIN_RESOLUTION = 64;    // Vertices per chunk side
++		private const int TERRAIN_RESOLUTION = 128;    // Vertices per chunk side
+ 
+ 		private static FastNoiseLite _heightNoise;
+ 		private static FastNoiseLite _moistureNoise;
+@@ -71,11 +71,13 @@ namespace WorldStreaming
+ 					float lz0 = z * vertexSpacing - halfSize;
+ 					float lz1 = (z + 1) * vertexSpacing - halfSize;
+ 
+-					// World positions for noise sampling
+-					float wx0 = worldOrigin.X + x * vertexSpacing;
+-					float wx1 = worldOrigin.X + (x + 1) * vertexSpacing;
+-					float wz0 = worldOrigin.Z + z * vertexSpacing;
+-					float wz1 = worldOrigin.Z + (z + 1) * vertexSpacing;
++					// World positions for noise sampling ΓÇö must match local vertex
++					// positions so that when the mesh is placed at worldOrigin,
++					// the height at each vertex corresponds to the correct world coord.
++					float wx0 = worldOrigin.X + lx0;
++					float wx1 = worldOrigin.X + lx1;
++					float wz0 = worldOrigin.Z + lz0;
++					float wz1 = worldOrigin.Z + lz1;
+ 
+ 					// Heights from world positions
+ 					float h00 = GetTerrainHeight(wx0, wz0);
+diff --git a/TerrainQuery.cs b/TerrainQuery.cs
+index 16fa991..b1a062c 100644
+--- a/TerrainQuery.cs
++++ b/TerrainQuery.cs
+@@ -43,6 +43,9 @@ namespace LandManagementSim.Terrain
+ 			_invCellSize = 1f / cellSize;
+ 			_width = Mathf.CeilToInt(worldSizeX / cellSize) + 1;
+ 			_depth = Mathf.CeilToInt(worldSizeZ / cellSize) + 1;
++			// World is centered on (0,0) so the grid spans from -worldSize/2 to +worldSize/2.
++			// This matches the chunk grid layout where chunk (0,0) has its southwest corner
++			// at (0,0) and the full map extends symmetrically around the origin.
+ 			_originX = -worldSizeX * 0.5f;
+ 			_originZ = -worldSizeZ * 0.5f;
+ 
+diff --git a/TimeSystem.cs b/TimeSystem.cs
+index 3ebb36d..dc4a994 100644
+--- a/TimeSystem.cs
++++ b/TimeSystem.cs
+@@ -75,6 +75,8 @@ namespace BasterBoer.Core.Systems
+ 			// Add continuous time-of-day progression
+ 			float timeProgressPerSecond = 24.0f / DayDurationSeconds;
+ 			_timeOfDay += (float)delta * timeProgressPerSecond;
++			_timeOfDay = Mathf.Wrap(_timeOfDay, 0f, 24f);
++			GameState.Instance.UpdateTimeOfDay(_timeOfDay);
+ 
+ 			if (_accumulatedTime >= SecondsPerDay)
+ 			{
+@@ -156,8 +158,10 @@ namespace BasterBoer.Core.Systems
+ 		/// </summary>
+ 		public string GetTimeString()
+ 		{
+-			int hours = (int)_timeOfDay;
+-			int minutes = (int)((_timeOfDay - hours) * 60);
++			float wrapped = _timeOfDay % 24f;
++			if (wrapped < 0f) wrapped += 24f;
++			int hours = (int)wrapped;
++			int minutes = (int)((wrapped - hours) * 60);
+ 			return $"{hours:D2}:{minutes:D2}";
+ 		}
+ 	}
+diff --git a/UI/HUD/MainHUD.gd b/UI/HUD/MainHUD.gd
+index 5ca5eae..9307ebc 100644
+--- a/UI/HUD/MainHUD.gd
++++ b/UI/HUD/MainHUD.gd
+@@ -5,6 +5,7 @@ extends CanvasLayer
+ 
+ @onready var date_label: Label = $DateLabel
+ @onready var season_icon: Label = $SeasonIcon
++@onready var time_label: Label = $TimeLabel
+ @onready var weather_label: Label = $WeatherLabel
+ @onready var money_label: Label = $MoneyLabel
+ @onready var alert_badge: Button = $AlertBadge
+@@ -53,6 +54,13 @@ func _on_season_changed(_season = null, _date = null):
+ func _on_weather_changed(_new_weather = null, _old_weather = null):
+ 	_update_display()
+ 
++func _process(_delta: float):
++	# Update time display every frame for smooth ticking
++	if _time_system and time_label:
++		var time_str = _time_system.GetTimeString()
++		if time_str:
++			time_label.text = time_str
++
+ func _update_display():
+ 	if _time_system:
+ 		# Date
+diff --git a/UI/HUD/MainHUD.tscn b/UI/HUD/MainHUD.tscn
+index 7dc50f8..d0603f5 100644
+--- a/UI/HUD/MainHUD.tscn
++++ b/UI/HUD/MainHUD.tscn
+@@ -20,10 +20,17 @@ offset_right = 340.0
+ offset_bottom = 30.0
+ text = "ΓÿÇ"
+ 
+-[node name="WeatherLabel" type="Label" parent="."]
++[node name="TimeLabel" type="Label" parent="."]
+ offset_left = 350.0
+ offset_top = 10.0
+-offset_right = 480.0
++offset_right = 440.0
++offset_bottom = 30.0
++text = "08:00"
++
++[node name="WeatherLabel" type="Label" parent="."]
++offset_left = 450.0
++offset_top = 10.0
++offset_right = 580.0
+ offset_bottom = 30.0
+ text = "ΓÿÇ Clear"
+ 
+diff --git a/WorldChunk.cs b/WorldChunk.cs
+index 0e8255b..00237cd 100644
+--- a/WorldChunk.cs
++++ b/WorldChunk.cs
+@@ -92,6 +92,29 @@ namespace WorldStreaming
+ 
+ 			AddChild(_terrainMeshInstance);
+ 
++			// Collision ΓÇö built from the same mesh so heights always match what the player sees.
++			// CreateTrimeshShape is exact but not convex ΓÇö perfect for open terrain.
++			var concaveShape = buildResult.TerrainMesh.CreateTrimeshShape();
++			if (concaveShape != null)
++			{
++				// BackfaceCollision ensures the CharacterBody3D hits the surface regardless
++				// of which side the physics engine approaches from (needed with Jolt).
++				concaveShape.BackfaceCollision = true;
++
++				var terrainCollision = new CollisionShape3D
++				{
++					Shape = concaveShape,
++					Name = "TerrainCollision"
++				};
++				var terrainBody = new StaticBody3D { Name = "TerrainBody" };
++				terrainBody.AddChild(terrainCollision);
++				AddChild(terrainBody);
++			}
++			else
++			{
++				GD.PushError($"[WorldChunk] CreateTrimeshShape returned null for chunk {Coordinate} ΓÇö no collision!");
++			}
++
+ 			// Create MultiMeshInstance3D for each flora type
+ 			foreach (var kvp in buildResult.FloraMultiMeshes)
+ 			{
+diff --git a/WorldChunkStreamer.cs b/WorldChunkStreamer.cs
+index af5b59d..43ffeec 100644
+--- a/WorldChunkStreamer.cs
++++ b/WorldChunkStreamer.cs
+@@ -1,3 +1,4 @@
++using Basterboer.Buildings;
+ using Godot;
+ using System;
+ using System.Collections.Generic;
+@@ -14,9 +15,22 @@ namespace WorldStreaming
+ 	[GlobalClass]
+ 	public partial class WorldChunkStreamer : Node
+ 	{
++		/// <summary>
++		/// Emitted when the center chunk's collision is in the scene tree.
++		/// Player/Bakkie can safely spawn after this signal fires.
++		/// </summary>
++		[Signal]
++		public delegate void InitialTerrainReadyEventHandler();
++
+ 		private static WorldChunkStreamer _instance;
+ 		public static WorldChunkStreamer Instance => _instance;
+ 
++		/// <summary>
++		/// True after the center chunk has been synchronously loaded and its
++		/// collision is in the scene tree. Safe to spawn player when true.
++		/// </summary>
++		public bool IsInitialLoadComplete { get; private set; }
++
+ 		[ExportGroup("Player Tracking")]
+ 		[Export]
+ 		public NodePath PlayerNodePath { get; set; }
+@@ -37,6 +51,7 @@ namespace WorldStreaming
+ 
+ 		// Runtime state
+ 		private Node3D _playerNode;
++		private BuildingRenderer _buildingRenderer;
+ 		private ChunkCoord _currentPlayerChunk;
+ 		private readonly Dictionary<ChunkCoord, WorldChunk> _activeChunks = 
+ 			new Dictionary<ChunkCoord, WorldChunk>();
+@@ -66,7 +81,14 @@ namespace WorldStreaming
+ 
+ 		public override void _Ready()
+ 		{
+-			if (!string.IsNullOrEmpty(PlayerNodePath.ToString()))
++			// Cache BuildingRenderer reference for performance (no GetNode() in loops)
++			_buildingRenderer = BuildingRenderer.Instance;
++			if (_buildingRenderer == null)
++			{
++				GD.PrintErr("[WorldChunkStreamer] BuildingRenderer not found!");
++			}
++
++			if (PlayerNodePath != null && !PlayerNodePath.IsEmpty)
+ 			{
+ 				_playerNode = GetNodeOrNull<Node3D>(PlayerNodePath);
+ 				if (_playerNode == null)
+@@ -98,6 +120,15 @@ namespace WorldStreaming
+ 			}
+ 		}
+ 
++		/// <summary>
++		/// Gets terrain height at world coordinates via the unified TerrainQuery path.
++		/// Falls back to TerrainGenerator.GetTerrainHeight() when TerrainQuery is uninitialized.
++		/// </summary>
++		public float GetTerrainHeightAt(float worldX, float worldZ)
++		{
++			return LandManagementSim.Terrain.TerrainQuery.GetHeight(worldX, worldZ);
++		}
++
+ 		/// <summary>
+ 		/// Sets player node reference if not using NodePath.
+ 		/// </summary>
+@@ -146,13 +177,21 @@ namespace WorldStreaming
+ 		private void InitialChunkLoad()
+ 		{
+ 			ChunkCoord[] initialChunks = _currentPlayerChunk.Get3x3Grid();
+-			
+-			// Sort by distance from center (player chunk loads first)
+-			Array.Sort(initialChunks, (a, b) => 
+-				a.ManhattanDistance(_currentPlayerChunk).CompareTo(b.ManhattanDistance(_currentPlayerChunk)));
+ 
++			// 1. Load the center chunk SYNCHRONOUSLY so collision exists before
++			//    any physics frame runs. The player must be able to stand on this.
++			LoadChunkSync(_currentPlayerChunk);
++
++			// Mark initial load complete and emit signal so Player/Bakkie can spawn
++			IsInitialLoadComplete = true;
++			EmitSignal(SignalName.InitialTerrainReady);
++			GD.Print("[WorldChunkStreamer] Center chunk ready ΓÇö InitialTerrainReady emitted");
++
++			// 2. Load the remaining 8 surrounding chunks asynchronously
+ 			foreach (var coord in initialChunks)
+ 			{
++				if (coord == _currentPlayerChunk) continue; // Already loaded sync
++
+ 				if (_activeChunks.Count + _chunksBeingLoaded.Count < MaxActiveChunks)
+ 				{
+ 					LoadChunkAsync(coord);
+@@ -277,10 +316,44 @@ namespace WorldStreaming
+ 					}
+ 					
+ 					chunk.ApplyBuildResult(buildResult);
++					_buildingRenderer?.OnChunkLoaded(buildResult.Coordinate);
+ 					resultsApplied++;
+ 				}
++			}
++		}
+ 
+-				resultsApplied++;
++		/// <summary>
++		/// Synchronously loads a chunk: builds content on the current thread and
++		/// immediately adds it to the scene tree with collision. Used for the
++		/// initial center chunk so the player can spawn before any physics frame.
++		/// </summary>
++		private void LoadChunkSync(ChunkCoord coord)
++		{
++			if (_activeChunks.ContainsKey(coord))
++			{
++				return; // Already loaded
++			}
++
++			try
++			{
++				var chunk = new WorldChunk();
++				chunk.Initialize(coord, ChunkSize);
++
++				// Build on main thread ΓÇö blocking but guaranteed done before return
++				var buildResult = chunk.BuildChunkContent();
++
++				// Add to scene tree and apply result immediately
++				AddChild(chunk);
++				chunk.ApplyBuildResult(buildResult);
++				_buildingRenderer?.OnChunkLoaded(coord);
++
++				_activeChunks[coord] = chunk;
++
++				GD.Print($"[WorldChunkStreamer] Sync loaded center chunk {coord}");
++			}
++			catch (Exception ex)
++			{
++				GD.PrintErr($"[WorldChunkStreamer] Error sync loading chunk {coord}: {ex}");
+ 			}
+ 		}
+ 
+@@ -291,6 +364,9 @@ namespace WorldStreaming
+ 				return;
+ 			}
+ 
++			// Notify BuildingRenderer before removing chunk
++			_buildingRenderer?.OnChunkUnloaded(coord);
++
+ 			chunk.UnloadChunk();
+ 			if (chunk.IsInsideTree())
+ 			{
+diff --git a/project.godot b/project.godot
+index 99f5223..d3302f0 100644
+--- a/project.godot
++++ b/project.godot
+@@ -19,6 +19,8 @@ config/icon="res://icon.svg"
+ 
+ Bootstrap="*res://Scripts/Core/Bootstrap.cs"
+ WeatherSystem="*res://WeatherSystem.cs"
++FloraSystem="*res://FloraSystem.cs"
++WorldChunkStreamer="*res://WorldChunkStreamer.cs"
+ 
+ [display]
+ 
+@@ -63,6 +65,21 @@ jump={
+ }
+ interact={
+ "deadzone": 0.2,
++"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":70,"key_label":0,"unicode":102,"location":0,"echo":false,"script":null)
++]
++}
++toggle_build_mode={
++"deadzone": 0.2,
++"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":66,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
++]
++}
++rotate_left={
++"deadzone": 0.2,
++"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":81,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
++]
++}
++rotate_right={
++"deadzone": 0.2,
+ "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":0,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":69,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+ ]
+ }
+diff --git a/skills/SKILL.md b/skills/SKILL.md
+deleted file mode 100644
+index 69706bf..0000000
+--- a/skills/SKILL.md
++++ /dev/null
+@@ -1,308 +0,0 @@
+-# SKILL: Godot 4.6 C# Development
+-
+-## When to use this skill
+-Read this file before writing ANY C# code that touches Godot APIs, scene nodes,
+-signals, threading, or rendering. Also read before reviewing or debugging C# files
+-in this project.
+-
+----
+-
+-## 1. The Golden Rule ΓÇö Engine Boundary
+-
+-Simulation code must NEVER import or call Godot APIs directly.
+-The boundary between simulation and engine is `GameState` and the render layer only.
+-
+-```csharp
+-// WRONG ΓÇö simulation system importing Godot
+-using Godot;
+-public class AnimalSystem {
+-    public void Tick() {
+-        var node = Engine.GetMainLoop(); // NEVER do this in a simulation class
+-    }
+-}
+-
+-// CORRECT ΓÇö simulation system is pure C#
+-public class AnimalSystem {
+-    public void Tick(float deltaTime) {
+-        // Pure C# logic only. No Godot imports.
+-    }
+-}
+-```
+-
+----
+-
+-## 2. Node Lifecycle ΓÇö Order Matters
+-
+-Godot 4.6 node lifecycle in C#:
+-
+-| Method | When Called | Use For |
+-|--------|-------------|---------|
+-| `_Ready()` | Node enters scene tree, all children ready | Cache node refs, connect signals, init |
+-| `_Process(double delta)` | Every frame (main thread) | Visual updates ONLY |
+-| `_PhysicsProcess(double delta)` | Fixed physics step | Physics queries only |
+-| `_Input(InputEvent e)` | Input events | Player input only |
+-| `_Notification(int what)` | Engine notifications | Cleanup on `NOTIFICATION_PREDELETE` |
+-
+-**Critical:** `_Ready()` fires bottom-up (children before parents). Never assume a
+-sibling node is ready when your own `_Ready()` fires. Use `CallDeferred` to safely
+-call methods that depend on sibling readiness.
+-
+-```csharp
+-// WRONG ΓÇö sibling may not be ready
+-public override void _Ready() {
+-    GameState.Instance.Register(this); // GameState._Ready() may not have fired
+-}
+-
+-// CORRECT ΓÇö deferred call runs after all _Ready() calls complete
+-public override void _Ready() {
+-    CallDeferred(MethodName.Initialize);
+-}
+-private void Initialize() {
+-    // Now ALL nodes in the scene have had _Ready() called
+-    GameState.Instance.Register(this);
+-}
+-```
+-
+----
+-
+-## 3. Threading Rules ΓÇö Non-Negotiable
+-
+-Godot's scene tree and all Node APIs are **main-thread only**. Any violation causes
+-random crashes, not clean errors.
+-
+-### What is safe on background threads:
+-- Pure C# data manipulation (structs, classes, collections)
+-- Math calculations
+-- File I/O (not Godot ResourceLoader)
+-- Simulation ticks (AnimalSystem, FloraSystem, EconomySystem)
+-- Chunk data generation
+-
+-### What is NEVER safe on background threads:
+-- ANY `Node` method call
+-- `AddChild()`, `RemoveChild()`, `QueueFree()`
+-- `GetNode()`, `FindChild()`
+-- Instantiating `PackedScene`
+-- Setting node properties (`.Visible`, `.Position`, `.Name`)
+-- Godot signals (`EmitSignal`)
+-- `GD.Print()` ΓÇö use `Console.WriteLine()` on background threads
+-
+-### Marshalling back to main thread:
+-
+-```csharp
+-// Pattern 1: CallDeferred (simplest, for void methods)
+-private void BackgroundThread() {
+-    // ... heavy work ...
+-    CallDeferred(MethodName.BuildVisuals); // runs on next main thread frame
+-}
+-
+-// Pattern 2: Callable.From (for lambdas)
+-private void BackgroundThread() {
+-    var results = DoHeavyWork();
+-    Callable.From(() => ApplyResults(results)).CallDeferred();
+-}
+-
+-// Pattern 3: Thread + Join (as used in FenceSystem.cs)
+-_generationThread = new Thread(GenerateFenceDataThreaded);
+-_generationThread.IsBackground = true;
+-_generationThread.Start();
+-// In BuildVisuals():
+-_generationThread.Join(); // wait for thread before touching results
+-```
+-
+----
+-
+-## 4. Node References ΓÇö Cache Everything
+-
+-```csharp
+-// WRONG ΓÇö GetNode() in a loop or _Process() destroys performance
+-public override void _Process(double delta) {
+-    GetNode<Label>("HUD/StatusLabel").Text = GetStatus(); // never do this
+-}
+-
+-// CORRECT ΓÇö cache in _Ready()
+-private Label _statusLabel;
+-public override void _Ready() {
+-    _statusLabel = GetNode<Label>("HUD/StatusLabel");
+-}
+-public override void _Process(double delta) {
+-    _statusLabel.Text = GetStatus();
+-}
+-```
+-
+----
+-
+-## 5. Signals in C#
+-
+-### Declaring signals:
+-```csharp
+-[Signal] public delegate void HerdStateChangedEventHandler(int herdId, string newState);
+-```
+-
+-### Connecting signals (C# to C#):
+-```csharp
+-// Preferred: typed connection
+-someNode.HerdStateChanged += OnHerdStateChanged;
+-
+-// For GDScript compatibility use StringName:
+-someNode.Connect(SignalName.HerdStateChanged, Callable.From<int, string>(OnHerdStateChanged));
+-```
+-
+-### Emitting:
+-```csharp
+-EmitSignal(SignalName.HerdStateChanged, herdId, newState);
+-```
+-
+-### Disconnecting on cleanup:
+-```csharp
+-public override void _Notification(int what) {
+-    if (what == NotificationPredelete) {
+-        someNode.HerdStateChanged -= OnHerdStateChanged;
+-    }
+-}
+-```
+-
+----
+-
+-## 6. MultiMeshInstance3D ΓÇö The Right Pattern
+-
+-Every repeated object in the world uses MultiMesh. This is how:
+-
+-```csharp
+-// Setup
+-var multiMesh = new MultiMesh {
+-    TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+-    Mesh = myMesh,
+-    InstanceCount = positions.Count  // set AFTER Mesh, before setting transforms
+-};
+-
+-// Set individual transforms
+-for (int i = 0; i < positions.Count; i++) {
+-    var basis = Basis.Identity;
+-    // Apply rotation if needed:
+-    basis = basis.Rotated(Vector3.Up, yaw);
+-    multiMesh.SetInstanceTransform(i, new Transform3D(basis, positions[i]));
+-}
+-
+-// Per-instance colour (if shader supports it):
+-multiMesh.UseColors = true;
+-multiMesh.SetInstanceColor(i, new Color(r, g, b));
+-
+-// Wrap in node and add to scene:
+-var mmi = new MultiMeshInstance3D { Multimesh = multiMesh };
+-AddChild(mmi);
+-```
+-
+-**Critical:** Set `InstanceCount` AFTER assigning `Mesh`. Setting it before
+-results in a silent no-op and no instances render.
+-
+-**Updating positions at runtime (e.g. animal movement):**
+-```csharp
+-// Only update the instances that moved ΓÇö not the whole buffer
+-multiMesh.SetInstanceTransform(animalIndex, newTransform);
+-```
+-
+----
+-
+-## 7. PackedScene Instantiation
+-
+-```csharp
+-// Load once, instantiate many
+-[Export] public PackedScene AnimalScene;
+-
+-// In _Ready() or lazy-load:
+-private Node3D SpawnAnimal(Vector3 position) {
+-    var instance = AnimalScene.Instantiate<Node3D>();
+-    instance.Position = position;
+-    AddChild(instance); // must be on main thread
+-    return instance;
+-}
+-
+-// Extracting a mesh from a GLB PackedScene (see FenceSystem pattern):
+-Node root = packedScene.Instantiate<Node>();
+-MeshInstance3D mi = FindFirstMeshInstance(root); // depth-first search
+-Mesh mesh = mi.Mesh;
+-root.Free(); // free the temporary instance ΓÇö keep only the mesh resource
+-```
+-
+----
+-
+-## 8. Singleton Pattern (Godot Autoload style in C#)
+-
+-```csharp
+-public partial class GameState : Node {
+-    private static GameState _instance;
+-    public static GameState Instance => _instance;
+-
+-    public override void _Ready() {
+-        if (_instance != null && _instance != this) {
+-            QueueFree();
+-            return;
+-        }
+-        _instance = this;
+-    }
+-}
+-```
+-
+-Access from anywhere on the main thread:
+-```csharp
+-var mapSize = GameState.Instance.MapSizeX;
+-```
+-
+-Never access `GameState.Instance` from a background thread without locking or
+-reading the value before the thread starts.
+-
+----
+-
+-## 9. Resource Loading
+-
+-```csharp
+-// Synchronous (main thread only, causes frame hitch on large assets):
+-var mesh = GD.Load<Mesh>("res://assets/animals/impala.glb");
+-
+-// Async (preferred for large assets):
+-ResourceLoader.LoadThreadedRequest("res://assets/animals/impala.glb");
+-// Later:
+-if (ResourceLoader.LoadThreadedGetStatus(path) == ResourceLoader.ThreadLoadStatus.Loaded) {
+-    var mesh = ResourceLoader.LoadThreadedGet(path) as Mesh;
+-}
+-```
+-
+----
+-
+-## 10. Common Godot 4.6 C# Pitfalls
+-
+-| Pitfall | Symptom | Fix |
+-|---------|---------|-----|
+-| `GetNode()` before `_Ready()` | NullReferenceException | Use `_Ready()` or `CallDeferred` |
+-| Calling node APIs from Thread | Random crashes | Marshal via `CallDeferred` |
+-| Setting `InstanceCount` before `Mesh` | No instances render | Assign `Mesh` first |
+-| Forgetting `QueueFree()` on temporary nodes | Memory leak | Free GLB instances after mesh extraction |
+-| Using `EmitSignal` on background thread | Crash | Defer signal emission to main thread |
+-| `_Process()` every frame for simulation | Frame budget blown | Use TimeSystem tick instead |
+-| Connecting same signal twice | Handler fires twice | Check `IsConnected()` or use one-time `CONNECT_ONE_SHOT` |
+-| `GD.Print()` from thread | Crash or garbled output | Use `Console.WriteLine()` on threads |
+-
+----
+-
+-## 11. GDScript Γåö C# Interop
+-
+-C# classes that GDScript needs to access must:
+-- Inherit from `GodotObject` or `Node`
+-- Use `[Export]` for properties GDScript sets in Inspector
+-- Use `[Signal]` for signals GDScript connects to
+-- Have `public` visibility on methods GDScript calls
+-
+-```csharp
+-// C# system that GDScript can read from
+-public partial class EconomySystem : Node {
+-    [Export] public float CurrentBalance { get; private set; }
+-
+-    public float GetSpeciesValue(string speciesId) { ... }
+-}
+-```
+-
+-In GDScript:
+-```gdscript
+-var balance = EconomySystem.instance.CurrentBalance  # direct property
+-var val = EconomySystem.instance.GetSpeciesValue("impala")  # method call
+-```
+diff --git a/skills/basterboer-performance/SKILL.md b/skills/basterboer-performance/SKILL.md
+deleted file mode 100644
+index ea1b230..0000000
+--- a/skills/basterboer-performance/SKILL.md
++++ /dev/null
+@@ -1,287 +0,0 @@
+-# SKILL: BasterBoer Performance Architecture
+-
+-## When to use this skill
+-Read this file before writing any system, asset pipeline, or rendering code.
+-These rules are binding. A feature that violates them cannot ship ΓÇö it must be
+-redesigned, not optimised later. "We'll fix it when it's slow" is not an option
+-on a mid-range PC target.
+-
+-**Target hardware:** Mid-range PC circa 2021. Intel i5/Ryzen 5, 16GB RAM,
+-GTX 1060 / RX 580 class GPU. This is the rural South African player.
+-Every decision must serve this machine.
+-
+----
+-
+-## 1. The Three Bottlenecks ΓÇö Know Which One You're Hitting
+-
+-Before writing any system, identify which hardware resource it strains.
+-
+-### CPU ΓÇö Killed by quantity of work per frame
+-- Runs all game logic: AI, simulation, pathfinding, physics
+-- C# is 3ΓÇô10├ù faster than GDScript on tight loops ΓÇö use it for all simulation
+-- Enemy: 200 animals each running individual AI every frame
+-- Solution: One herd brain, 200 bodies following its result
+-
+-### GPU ΓÇö Killed by draw call count, not polygon count
+-- Draws things on screen ΓÇö fast at drawing the same thing many times
+-- Enemy: 1,000 trees each with unique meshes = 1,000 draw calls
+-- Solution: 1,000 trees sharing one mesh = 1 draw call (instancing)
+-- Low poly reduces data per draw call but NOT draw call count
+-
+-### RAM ΓÇö Killed by loading too much at once
+-- Holds all currently loaded meshes, textures, nodes, audio, data
+-- Enemy: Loading a 10,000 hectare world simultaneously
+-- Solution: Only the area near the player is loaded as scene nodes.
+-  Everything else is lightweight C# data objects.
+-
+----
+-
+-## 2. Performance Budget ΓÇö Hard Limits
+-
+-These are warning lines. Exceed them ΓåÆ investigate before adding more content.
+-
+-| Metric | Limit |
+-|--------|-------|
+-| Draw calls per frame | **< 300** |
+-| MultiMeshInstance3D instances visible | **< 6,000 total** |
+-| Herds running full behaviour AI | **< 8 simultaneously** |
+-| Individual animal meshes rendered | **< 300 simultaneously** |
+-| Active particle systems | **< 8 simultaneously** |
+-| Active 3D audio sources | **< 12** |
+-| RAM during gameplay | **< 4 GB** |
+-| Chunk load time | **< 80ms (background thread)** |
+-| Monthly simulation tick (all systems) | **< 20ms total** |
+-
+-### How the 300 draw call budget is used:
+-- Terrain chunks (3├ù3 grid): ~9 draw calls
+-- Tree species (MultiMesh per species per chunk): ~30ΓÇô50 draw calls
+-- Grass (MultiMesh per chunk): ~9 draw calls
+-- Animal herds (MultiMesh per species): ~10ΓÇô20 draw calls
+-- Rocks/shrubs/ground cover: ~15 draw calls
+-- Buildings and infrastructure: ~20ΓÇô40 draw calls
+-- Fence system (poles, sticks, wire per chunk): ~15ΓÇô30 draw calls
+-- Water/river shaders: 0 additional (shader params on terrain)
+-- Fire (1ΓÇô2 particle systems): ~2 draw calls
+-- UI: ~20ΓÇô30 draw calls
+-- Roads: 0 additional (terrain texture blend)
+-- Ambient wildlife (MultiMesh per species): ~10 draw calls
+-- Headroom: ~60ΓÇô100 draw calls
+-
+-Any single naive system that spawns unique nodes per entity will consume
+-this entire budget alone. Do not do it.
+-
+----
+-
+-## 3. Instancing Rules ΓÇö Non-Negotiable
+-
+-Any object that appears more than once uses `MultiMeshInstance3D`. No exceptions.
+-
+-```csharp
+-// WRONG ΓÇö unique node per tree
+-foreach (var pos in treePositions) {
+-    var treeNode = treeScene.Instantiate<Node3D>(); // hundreds of draw calls
+-    treeNode.Position = pos;
+-    AddChild(treeNode);
+-}
+-
+-// CORRECT ΓÇö one MultiMesh for all trees of this species
+-var mm = new MultiMesh {
+-    Mesh = acaciaMesh,
+-    TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+-    InstanceCount = treePositions.Count
+-};
+-for (int i = 0; i < treePositions.Count; i++)
+-    mm.SetInstanceTransform(i, new Transform3D(Basis.Identity, treePositions[i]));
+-AddChild(new MultiMeshInstance3D { Multimesh = mm });
+-// Result: 1 draw call for all acacia trees in this chunk
+-```
+-
+-### Instancing applies to:
+-- All tree species (one MultiMesh per species per active chunk)
+-- All animals of same species in a visible herd
+-- Grass blades (one MultiMesh per chunk, wind shader on GPU)
+-- Rock formations
+-- Fence posts and droppers (see FenceSystem.cs)
+-- Shrubs and ground cover
+-- Ambient wildlife of same species (40 queleas = 1 draw call)
+-- Building component types (walls, roofs of same material)
+-
+-### Visual variety without unique meshes:
+-Use per-instance shader parameters ΓÇö NOT separate meshes.
+-
+-```csharp
+-// One acacia mesh. Shader controls drought stress, health, size variation.
+-mm.UseCustomData = true;
+-mm.SetInstanceCustomData(i, new Color(
+-    healthNormalised,    // r = health (affects colour)
+-    sizeVariation,       // g = scale offset
+-    droughtStress,       // b = drought appearance
+-    0f
+-));
+-// The shader reads these values and varies appearance.
+-// Still 1 draw call.
+-```
+-
+----
+-
+-## 4. C# Code Performance Rules
+-
+-### Never in _Process() ΓÇö simulation belongs in TimeSystem ticks
+-```csharp
+-// WRONG ΓÇö runs every frame, destroys CPU budget
+-public override void _Process(double delta) {
+-    foreach (var herd in AnimalSystem.AllHerds) {  // never
+-        herd.UpdateHunger(delta);
+-    }
+-}
+-
+-// CORRECT ΓÇö runs once per game-day
+-public void OnDailyTick() {
+-    foreach (var herd in _herds) {
+-        herd.Brain.UpdateHunger(_dayDeltaHours);
+-    }
+-}
+-```
+-
+-### Use structs for per-entity data
+-```csharp
+-// CORRECT ΓÇö value type, stored contiguously, cache-friendly iteration
+-public readonly struct AnimalStruct {
+-    public readonly int Id;
+-    public readonly float Age;
+-    public readonly float Health;
+-    public readonly GeneticProfile Genetics;
+-}
+-
+-// Keep the array of structs, not array of class references
+-private AnimalStruct[] _animals; // good: cache-friendly
+-private Animal[] _animals;       // bad: array of heap pointers, cache misses
+-```
+-
+-### No LINQ in hot paths
+-```csharp
+-// WRONG ΓÇö LINQ allocates on every call, GC pressure in tick loops
+-var thirstyHerds = _herds.Where(h => h.Brain.Thirst > 0.8f).ToList();
+-
+-// CORRECT ΓÇö direct iteration, zero allocation
+-for (int i = 0; i < _herds.Count; i++) {
+-    if (_herds[i].Brain.Thirst > 0.8f) ProcessThirstyHerd(_herds[i]);
+-}
+-```
+-
+-### Cache all node references
+-```csharp
+-// WRONG
+-public override void _Process(double delta) {
+-    GetNode<Label>("HUD/Balance").Text = FormatZAR(balance); // GetNode every frame
+-}
+-
+-// CORRECT
+-private Label _balanceLabel;
+-public override void _Ready() { _balanceLabel = GetNode<Label>("HUD/Balance"); }
+-public override void _Process(double delta) { _balanceLabel.Text = FormatZAR(balance); }
+-```
+-
+-### Never allocate in tick loops
+-```csharp
+-// WRONG ΓÇö creates garbage every tick
+-public void OnDailyTick() {
+-    var nearbyWater = new List<WaterSource>(); // allocation in hot path
+-    foreach (var herd in _herds) { ... }
+-}
+-
+-// CORRECT ΓÇö reuse a cached list
+-private readonly List<WaterSource> _nearbyWaterCache = new();
+-public void OnDailyTick() {
+-    _nearbyWaterCache.Clear(); // reuse, no allocation
+-    foreach (var herd in _herds) { ... }
+-}
+-```
+-
+-### Chunk generation on background thread only
+-```csharp
+-// WRONG ΓÇö generates on main thread, causes frame hitch
+-public void LoadChunk(ChunkCoord coord) {
+-    GenerateChunkData(coord); // blocks main thread for 80ms+
+-    BuildChunkVisuals(coord);
+-}
+-
+-// CORRECT
+-public void LoadChunk(ChunkCoord coord) {
+-    Task.Run(() => {
+-        var data = GenerateChunkData(coord); // background thread
+-        Callable.From(() => BuildChunkVisuals(data)).CallDeferred(); // back to main
+-    });
+-}
+-```
+-
+----
+-
+-## 5. Asset Rules
+-
+-### Polygon targets
+-| Asset Type | Triangle Budget |
+-|-----------|----------------|
+-| Animals | 400ΓÇô750 triangles |
+-| Trees | 200ΓÇô800 triangles |
+-| Rocks | 50ΓÇô200 triangles |
+-| Buildings (individual component) | 100ΓÇô400 triangles |
+-| Fence pole / dropper | 30ΓÇô80 triangles |
+-
+-Low poly is a technical requirement, not just an aesthetic. More polygons per
+-draw call means less headroom for draw call count.
+-
+-### Textures
+-- All flora and terrain textures combined into atlases ΓÇö one atlas per biome
+-- Maximum atlas resolution: 2048├ù2048
+-- No unique material per object ΓÇö each unique material = one more draw call
+-- Animal coat variation via shader colour parameters, NOT separate textures
+-
+-### Audio
+-- All ambient sounds: `AudioStreamPlayer3D` with distance attenuation
+-- Maximum 12 simultaneous 3D audio sources
+-- Animal calls triggered by EventSystem or herd state ΓÇö not always-on proximity nodes
+-- Bakkie music: single `AudioStreamPlayer3D` on bakkie node, attenuates with distance
+-
+----
+-
+-## 6. What Low Poly Does NOT Fix
+-
+-Low poly reduces VRAM per mesh and GPU work per draw call. It does NOT:
+-- Reduce draw call count ΓåÆ instancing does that
+-- Reduce CPU load from simulation ΓåÆ C# tick architecture does that
+-- Reduce RAM pressure from too many nodes ΓåÆ chunking does that
+-
+-Low poly is one layer. It requires all the other layers to function.
+-
+----
+-
+-## 7. The Simulate vs Render Draw Call Impact
+-
+-These systems cost ZERO additional draw calls because they are implemented correctly:
+-
+-| System | Why zero cost |
+-|--------|--------------|
+-| Rivers | Shader parameter on terrain mesh ΓÇö no new geometry |
+-| Dams | Water plane mesh scaled by capacity parameter |
+-| Roads | Terrain texture blend ΓÇö no separate mesh |
+-| Fire | 1ΓÇô2 particle systems regardless of fire size |
+-| Micro-wildlife flocks | MultiMesh per species ΓÇö 40 birds = 1 draw call |
+-| Building health/damage | Shader parameter on existing mesh |
+-
+-If your new system cannot be described in this table, explain why before building it.
+-
+----
+-
+-## 8. Pre-Implementation Checklist
+-
+-Before writing a single line of a new system:
+-
+-- [ ] Which of the three bottlenecks does this touch? (CPU / GPU / RAM)
+-- [ ] Does it use MultiMesh for any repeated visual element?
+-- [ ] Does simulation logic run in TimeSystem ticks, not `_Process()`?
+-- [ ] Does it add < 10 draw calls at full load?
+-- [ ] Are per-entity data types structs, not classes?
+-- [ ] Is there a chunk unload strategy that frees scene nodes?
+-- [ ] Does it stay within the < 20ms monthly tick budget?
+-- [ ] Can it be disabled entirely on the simulation side without touching the render layer?
+diff --git a/skills/basterboer-simulation/SKILL.md b/skills/basterboer-simulation/SKILL.md
+deleted file mode 100644
+index f252677..0000000
+--- a/skills/basterboer-simulation/SKILL.md
++++ /dev/null
+@@ -1,282 +0,0 @@
+-# SKILL: BasterBoer Simulation Architecture
+-
+-## When to use this skill
+-Read this file before designing or writing ANY new system, class, or feature in
+-BasterBoer. This defines how the game world works at an architectural level.
+-Violating these rules produces code that cannot be integrated without a rewrite.
+-
+----
+-
+-## 1. The Fundamental Law ΓÇö Simulate vs Render
+-
+-> Everything in the world is simulated at all times.
+-> Only what is near the player is rendered.
+-
+-This is not a guideline. It is the load-bearing wall of the entire architecture.
+-Every system you write must respect this split.
+-
+-| Layer | What it is | Technology | Runs |
+-|-------|-----------|------------|------|
+-| **Simulation** | C# data objects ΓÇö herds, flora, economy, fire, water | Pure C# classes and structs | Always, every tick |
+-| **Render** | Scene nodes ΓÇö meshes, particles, audio | Godot nodes + MultiMeshInstance3D | Proximity only, freed on unload |
+-
+-A buffalo herd 3km from the player is **real** ΓÇö it grazes, breeds, ages, and
+-can be poached. It has zero scene nodes. It is a C# object. When the player
+-drives within 150m, the render layer reads the herd data and spawns meshes.
+-When the player leaves, those meshes are freed. The C# data object continues
+-running undisturbed.
+-
+-**The test:** Can your new class be instantiated without Godot running?
+-If yes, it belongs in the simulation layer. If no, examine why.
+-
+----
+-
+-## 2. System Ownership Map
+-
+-Every piece of data has exactly one owner. No system reads another system's
+-internal data directly ΓÇö all cross-system communication goes through `GameState`
+-or signals.
+-
+-```
+-GameState (singleton)
+-Γö£ΓöÇΓöÇ AnimalSystem          ΓÇö herd brains, individual animal data, population
+-Γö£ΓöÇΓöÇ BreedingSystem        ΓÇö genetics, conception, gestation, birth
+-Γö£ΓöÇΓöÇ FloraSystem           ΓÇö grass coverage, tree health, invasive species
+-Γö£ΓöÇΓöÇ WaterSystem           ΓÇö river levels, dam capacity, borehole yield
+-Γö£ΓöÇΓöÇ FireSystem            ΓÇö active fire events, spread rate, affected zones
+-Γö£ΓöÇΓöÇ EconomySystem         ΓÇö ZAR balance, revenue streams, expenses
+-Γö£ΓöÇΓöÇ StaffSystem           ΓÇö staff members, skills, morale, wages
+-Γö£ΓöÇΓöÇ WeatherSystem         ΓÇö drought state, rainfall, temperature, season
+-Γö£ΓöÇΓöÇ EcologySystem         ΓÇö biodiversity score, ambient life densities
+-ΓööΓöÇΓöÇ TimeSystem            ΓÇö game clock, tick dispatch, season tracking
+-```
+-
+-The **render layer** (WorldChunkStreamer + chunk nodes) reads from these systems
+-but never writes to them.
+-
+----
+-
+-## 3. The TimeSystem Tick ΓÇö Where Simulation Lives
+-
+-Simulation logic runs on ticks, NEVER in `_Process()`.
+-
+-```csharp
+-// TimeSystem dispatches ticks. Systems subscribe.
+-public enum TickType { Hourly, Daily, Weekly, Monthly }
+-
+-// In AnimalSystem:
+-public void OnDailyTick() {
+-    foreach (var herd in _herds) {
+-        herd.Brain.UpdateHunger(deltaDay);
+-        herd.Brain.UpdateThirst(deltaDay);
+-        herd.Brain.EvaluateStateChange();
+-    }
+-}
+-
+-public void OnMonthlyTick() {
+-    RunBreedingCheck();
+-    UpdatePopulationAge();
+-    ApplyMortality();
+-}
+-```
+-
+-**Rule:** If your logic runs more than once per second, question why.
+-If it runs every frame, it belongs in the render layer as a visual update,
+-not in simulation.
+-
+----
+-
+-## 4. The Herd Instinct Model
+-
+-### HerdBrain (one C# class per herd ΓÇö the decision maker)
+-
+-```csharp
+-public class HerdBrain {
+-    // Drives all animals in this herd
+-    public HerdState CurrentState;
+-    public float Thirst;      // 0-1, rises over time
+-    public float Hunger;      // 0-1, rises when grass is low
+-    public float Fatigue;     // 0-1, rises with movement and heat
+-    public float FearLevel;   // 0-1, spikes on predator detection
+-    public Vector3 HerdCentre; // world position of herd centre of mass
+-
+-    public void EvaluateStateChange() {
+-        // ONE decision. All animals execute it.
+-        if (FearLevel > 0.7f) { CurrentState = HerdState.Fleeing; return; }
+-        if (Thirst > 0.8f)    { CurrentState = HerdState.MovingToWater; return; }
+-        if (Hunger > 0.7f)    { CurrentState = HerdState.MovingToGraze; return; }
+-        if (Fatigue > 0.8f)   { CurrentState = HerdState.Resting; return; }
+-        CurrentState = HerdState.Grazing;
+-    }
+-}
+-
+-public enum HerdState {
+-    Grazing, MovingToWater, MovingToGraze, Resting, Fleeing, Alerting, Breeding
+-}
+-```
+-
+-### AnimalStruct (per-animal data ΓÇö value type, never makes decisions)
+-
+-```csharp
+-public readonly struct AnimalStruct {
+-    public readonly int Id;
+-    public readonly float Age;        // years
+-    public readonly Sex Sex;
+-    public readonly float Health;     // 0-1
+-    public readonly GeneticProfile Genetics;
+-    public readonly Vector3 OffsetFromCentre; // individual position within herd
+-    public readonly float ReactionLag;        // seconds of delay before responding to herd state change
+-}
+-```
+-
+-### The Ripple Effect (reaction lag)
+-
+-When a herd bolts, animals don't all move at frame 0.
+-Each animal has a small random `ReactionLag` (0.0ΓÇô0.8s based on position in herd
+-and individual sensitivity). This produces the visual of a signal rippling through
+-the group ΓÇö biologically accurate, computationally free.
+-
+-```csharp
+-// In render layer only ΓÇö visual position update
+-float effectiveReactionTime = Time.GetTicksMsec() / 1000f - animal.ReactionLag;
+-bool animalHasReacted = effectiveReactionTime > herdBrain.LastStateChangeTime;
+-```
+-
+----
+-
+-## 5. LOD Ladder ΓÇö Behaviour and Visual
+-
+-### Behaviour LOD (AnimalSystem responsibility)
+-
+-| Distance from Player | Tick Rate |
+-|----------------------|-----------|
+-| 0 ΓÇô 150m | Full ΓÇö every TimeSystem hourly tick |
+-| 150 ΓÇô 500m | Reduced ΓÇö state changes only, no per-tick awareness |
+-| 500m ΓÇô 2km | Minimal ΓÇö position updated once per in-game day |
+-| 2km+ | Simulation only ΓÇö monthly tick, no world position |
+-
+-### Visual LOD (Render layer responsibility)
+-
+-| Distance | Render Method |
+-|----------|---------------|
+-| 0 ΓÇô 100m | Full mesh + full skeletal animation |
+-| 100 ΓÇô 350m | Full mesh + simplified animation |
+-| 350 ΓÇô 800m | Billboard sprite facing camera |
+-| 800m+ | Not rendered |
+-
+-These distances are tuned for the performance budget. Do not increase them
+-without profiling.
+-
+----
+-
+-## 6. Chunk System
+-
+-### WorldChunkStreamer owns all visual content
+-- Active chunks: 3├ù3 grid around player (9 chunks max)
+-- Chunk size: 256 world units
+-- Each chunk owns: terrain tiles, MultiMeshInstance3D nodes for trees/grass/rocks
+-- Chunks do NOT own herds (herds cross chunk boundaries)
+-- Buildings ARE chunk-owned ΓÇö loaded/freed with chunk
+-
+-### ChunkCoord
+-```csharp
+-// From FenceSystem.cs ΓÇö this is the established pattern
+-public struct ChunkCoord {
+-    public int X, Z;
+-    public static ChunkCoord FromWorldPosition(Vector3 pos, float chunkSize) {
+-        return new ChunkCoord {
+-            X = Mathf.FloorToInt(pos.X / chunkSize),
+-            Z = Mathf.FloorToInt(pos.Z / chunkSize)
+-        };
+-    }
+-}
+-```
+-
+-### Chunk lifecycle
+-```csharp
+-// When chunk loads:
+-// 1. Read C# data from FloraSystem, BuildingData etc.
+-// 2. Populate MultiMesh instances from that data
+-// 3. Register with FenceSystem, WaterSystem for visual updates
+-
+-// When chunk unloads:
+-// 1. Free all scene nodes
+-// 2. C# simulation data remains alive and continues ticking
+-// 3. Deregister from visual update systems
+-```
+-
+----
+-
+-## 7. Water System ΓÇö Shader, Not Geometry
+-
+-Rivers and dams are NOT separate meshes. They are shader parameters on existing
+-terrain geometry. Adding new mesh geometry for water violates the draw call budget.
+-
+-```csharp
+-// WaterSystem holds the data:
+-public class RiverSegment {
+-    public float WaterLevel; // 0-1, 0 = dry cracked clay, 1 = full bank
+-}
+-
+-public class Dam {
+-    public float Capacity; // 0-1
+-}
+-
+-// Render layer applies it to the terrain shader:
+-terrainMesh.SetShaderParameter("river_level", segment.WaterLevel);
+-terrainMesh.SetShaderParameter("dam_capacity", dam.Capacity);
+-// No new geometry. No additional draw calls.
+-```
+-
+----
+-
+-## 8. Fire System
+-
+-```csharp
+-public class FireEvent {
+-    public Vector3 Origin;
+-    public float SpreadRadius;     // grows over time
+-    public float SpreadRatePerHour; // modified by wind, fuel load, drought state
+-    public HashSet<string> AffectedZoneIds;
+-    public bool IsControlledBurn;
+-    public bool IsContained;
+-}
+-```
+-
+-Fire render: particle systems + terrain colour overlay near player.
+-Fire simulation: C# data object updated on hourly tick.
+-One fire event = 1ΓÇô2 draw calls regardless of fire size (particle system).
+-
+----
+-
+-## 9. GameState ΓÇö The Data Bus
+-
+-All simulation systems read/write through GameState.
+-Never cache a reference to another system directly ΓÇö always go through GameState.
+-
+-```csharp
+-// WRONG
+-private AnimalSystem _animalSystem; // direct reference to another system
+-
+-// CORRECT
+-var herdsNearWater = GameState.Instance.AnimalSystem.GetHerdsNear(waterPos, 200f);
+-```
+-
+-GameState is the single source of truth. If two systems need to share data,
+-that data lives in GameState, not in either system.
+-
+----
+-
+-## 10. Adding a New System ΓÇö Checklist
+-
+-Before writing a new system, verify:
+-
+-- [ ] Does it separate simulation data (C# class) from render (Godot nodes)?
+-- [ ] Does it tick via TimeSystem, not `_Process()`?
+-- [ ] Does it register with GameState as its owner?
+-- [ ] Does it use structs for per-entity data (value types, cache-friendly)?
+-- [ ] Does its render output use MultiMeshInstance3D, not individual nodes?
+-- [ ] Does it have a LOD strategy (what happens at 500m, at 2km)?
+-- [ ] Does it stay within the performance budget? (See performance SKILL.md)
+-- [ ] Is it chunk-aware if it has spatial data?
+-- [ ] Does it have zero Godot API imports in the simulation class?

@@ -2,15 +2,22 @@
 
 [ext_resource type="PackedScene" uid="uid://7q0v27h5xjmi" path="res://Scenes/boer.tscn" id="1_jjgbg"]
 [ext_resource type="PackedScene" uid="uid://r2fmexo3f0m" path="res://Scenes/bakkie.tscn" id="2_bo1nx"]
-[ext_resource type="Script" uid="uid://bq5awlpjjbxue" path="res://TerrainChunkLoader.cs" id="3_chunk"]
 [ext_resource type="Script" uid="uid://ccrn8fxcbwioy" path="res://Scripts/TreeSpawner.gd" id="4_jjvhh"]
 [ext_resource type="Script" uid="uid://c7r8x36q13xle" path="res://AnimalRenderer.cs" id="5_kry3j"]
 [ext_resource type="PackedScene" uid="uid://br7k6cgwtbmeg" path="res://Assets/Kudu.glb" id="5_kudu"]
 [ext_resource type="Script" uid="uid://be63kmm7ek6ns" path="res://GrassSpawner.cs" id="6_grass"]
 [ext_resource type="PackedScene" uid="uid://lnwkxrj5c6no" path="res://Assets/Plaashuis.glb" id="7_home"]
 [ext_resource type="PackedScene" uid="uid://ba1afqem4p3xf" path="res://Assets/Zebra.glb" id="8_zebra"]
-[ext_resource type="PackedScene" path="res://Scenes/hud.tscn" id="9_hud"]
+[ext_resource type="PackedScene" uid="uid://b0menwsdixmb5" path="res://Scenes/hud.tscn" id="9_hud"]
+[ext_resource type="PackedScene" uid="uid://du8yym112o5jh" path="res://Assets/Impala.glb" id="9_k12tt"]
+[ext_resource type="PackedScene" uid="uid://dqpr1awkdc8ap" path="res://Assets/Buffalol.glb" id="10_b3802"]
 [ext_resource type="PackedScene" path="res://Scenes/WorldRoot.tscn" id="10_worldroot"]
+[ext_resource type="PackedScene" uid="uid://8dkqcxnudjwb" path="res://Assets/Gnu.glb" id="12_fevyy"]
+[ext_resource type="Script" uid="uid://om75vvfujcwb" path="res://FenceSystem.cs" id="12_wsu2k"]
+[ext_resource type="PackedScene" uid="uid://dvfplmtnd07x6" path="res://Assets/Pole.glb" id="13_k12tt"]
+[ext_resource type="PackedScene" uid="uid://blm28mqilnfcr" path="res://Assets/Stick.glb" id="14_h1bgf"]
+[ext_resource type="PackedScene" uid="uid://c5bpyhbnlffbr" path="res://Assets/Wire.glb" id="15_b3802"]
+[ext_resource type="Script" uid="uid://4kmb57bv8etr" path="res://DayNightCycle.cs" id="16_daynight"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_8gbba"]
 sky_top_color = Color(0.101960786, 0.22745098, 0.36078432, 1)
@@ -68,32 +75,44 @@ shadow_mesh = SubResource("ArrayMesh_sjhpg")
 
 [node name="WorldRoot" parent="." unique_id=2142578631 instance=ExtResource("10_worldroot")]
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1444903406]
+[node name="SunLight" type="DirectionalLight3D" parent="." unique_id=1444903406]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.363763, 5.437194)
+shadow_enabled = true
+
+[node name="MoonLight" type="DirectionalLight3D" parent="." unique_id=1444903407]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.363763, -5.437194)
+light_color = Color(0.4, 0.45, 0.6, 1)
+light_energy = 0.15
+shadow_enabled = true
 
 [node name="Boer" parent="." unique_id=548467488 instance=ExtResource("1_jjgbg")]
 transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 55.373, 18, 41.189)
 
 [node name="Bakkie" parent="." unique_id=123269232 instance=ExtResource("2_bo1nx")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14.56273, 21.341457, 3.9475455)
-drive_speed = 30.0
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 55.64687, 18.735666, 39.14499)
+drive_speed = 15.0
 
 [node name="Home" parent="." unique_id=616552732 instance=ExtResource("7_home")]
-transform = Transform3D(12, 0, 0, 0, 12, 0, 0, 0, 12, 9.603388, 17.534986, 29.262611)
+transform = Transform3D(12, 0, 0, 0, 12, 0, 0, 0, 12, 11.468669, 15.058893, 30.060135)
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=982253305]
 environment = SubResource("Environment_bo1nx")
 
-[node name="TerrainChunk" type="Node3D" parent="." unique_id=1111209924]
-script = ExtResource("3_chunk")
+[node name="WorldLighting" type="Node" parent="." unique_id=982253306]
+script = ExtResource("16_daynight")
 
 [node name="Treespawner" type="Node3D" parent="." unique_id=929476731]
 script = ExtResource("4_jjvhh")
+terrain_width = 2048
+terrain_depth = 2048
 
 [node name="AnimalRenderer" type="Node3D" parent="." unique_id=387894736]
 script = ExtResource("5_kry3j")
 KuduScene = ExtResource("5_kudu")
+ImpalaScene = ExtResource("9_k12tt")
+BuffaloScene = ExtResource("10_b3802")
 ZebraScene = ExtResource("8_zebra")
+WildebeestScene = ExtResource("12_fevyy")
 
 [node name="GrassSpawner" type="Node3D" parent="." unique_id=2000000000]
 script = ExtResource("6_grass")
@@ -111,3 +130,9 @@ ColourVariation = 0.399
 RaycastFrom = 50.0
 
 [node name="HUD" parent="." unique_id=537207281 instance=ExtResource("9_hud")]
+
+[node name="FenceSystem" type="Node3D" parent="." unique_id=976005637]
+script = ExtResource("12_wsu2k")
+PoleMeshScene = ExtResource("13_k12tt")
+StickMeshScene = ExtResource("14_h1bgf")
+WireMeshScene = ExtResource("15_b3802")

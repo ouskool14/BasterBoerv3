@@ -67,13 +67,13 @@ func _spawn_batch(rng: RandomNumberGenerator, space: PhysicsDirectSpaceState3D, 
 		var node : Node3D
 
 		if is_shrub:
-			var scale := rng.randf_range(0.3, 0.8)
-			node = _build_shrub(scale)
+			var spawn_scale := rng.randf_range(0.3, 0.8)
+			node = _build_shrub(spawn_scale)
 		else:
-			var scale := rng.randf_range(0.8, 1.6)
+			var spawn_scale := rng.randf_range(0.8, 1.6)
 			var roll  := rng.randf()
 			var type  := "acacia" if roll < 0.6 else ("thorn" if roll < 0.85 else "dead")
-			node = _build_tree(type, scale)
+			node = _build_tree(type, spawn_scale)
 
 		node.position   = Vector3(x, h, z)
 		node.rotation.y = rng.randf_range(0.0, TAU)
@@ -83,46 +83,46 @@ func _spawn_batch(rng: RandomNumberGenerator, space: PhysicsDirectSpaceState3D, 
 	print("%s spawned: %d" % ["Shrubs" if is_shrub else "Trees", spawned])
 
 # ── BUILD TREE ────────────────────────────────────────────────────────────────
-func _build_tree(type: String, scale: float) -> Node3D:
+func _build_tree(type: String, spawn_scale: float) -> Node3D:
 	var root := Node3D.new()
 
 	match type:
 		"acacia":
-			var trunk := _make_cylinder(0.08 * scale, 0.12 * scale, 1.8 * scale, 5, col_acacia_trunk)
-			trunk.position.y = 0.9 * scale
+			var trunk := _make_cylinder(0.08 * spawn_scale, 0.12 * spawn_scale, 1.8 * spawn_scale, 5, col_acacia_trunk)
+			trunk.position.y = 0.9 * spawn_scale
 			root.add_child(trunk)
 
-			var canopy := _make_cylinder(0.0, 1.6 * scale, 0.5 * scale, 6, col_acacia_canopy)
-			canopy.position.y = 1.9 * scale
+			var canopy := _make_cylinder(0.0, 1.6 * spawn_scale, 0.5 * spawn_scale, 6, col_acacia_canopy)
+			canopy.position.y = 1.9 * spawn_scale
 			root.add_child(canopy)
 
 		"thorn":
-			var trunk := _make_cylinder(0.06 * scale, 0.10 * scale, 1.2 * scale, 5, col_acacia_trunk)
-			trunk.position.y = 0.6 * scale
+			var trunk := _make_cylinder(0.06 * spawn_scale, 0.10 * spawn_scale, 1.2 * spawn_scale, 5, col_acacia_trunk)
+			trunk.position.y = 0.6 * spawn_scale
 			root.add_child(trunk)
 
-			var canopy := _make_sphere(0.9 * scale, 0.8 * scale, 5, 3, col_thorn_canopy)
-			canopy.position.y = 1.4 * scale
+			var canopy := _make_sphere(0.9 * spawn_scale, 0.8 * spawn_scale, 5, 3, col_thorn_canopy)
+			canopy.position.y = 1.4 * spawn_scale
 			root.add_child(canopy)
 
 		"dead":
-			var trunk := _make_cylinder(0.04 * scale, 0.10 * scale, 2.0 * scale, 4, col_dead_trunk)
-			trunk.position.y = 1.0 * scale
+			var trunk := _make_cylinder(0.04 * spawn_scale, 0.10 * spawn_scale, 2.0 * spawn_scale, 4, col_dead_trunk)
+			trunk.position.y = 1.0 * spawn_scale
 			root.add_child(trunk)
 
 			for i in range(2):
-				var branch := _make_cylinder(0.02 * scale, 0.04 * scale, 0.8 * scale, 4, col_dead_trunk)
-				branch.position.y = 1.6 * scale
+				var branch := _make_cylinder(0.02 * spawn_scale, 0.04 * spawn_scale, 0.8 * spawn_scale, 4, col_dead_trunk)
+				branch.position.y = 1.6 * spawn_scale
 				branch.rotation.z = 0.6 * (1 if i == 0 else -1)
 				root.add_child(branch)
 
 	return root
 
 # ── BUILD SHRUB ───────────────────────────────────────────────────────────────
-func _build_shrub(scale: float) -> Node3D:
+func _build_shrub(spawn_scale: float) -> Node3D:
 	var root := Node3D.new()
-	var mesh := _make_sphere(0.5 * scale, 0.4 * scale, 4, 2, col_shrub)
-	mesh.position.y = 0.2 * scale
+	var mesh := _make_sphere(0.5 * spawn_scale, 0.4 * spawn_scale, 4, 2, col_shrub)
+	mesh.position.y = 0.2 * spawn_scale
 	root.add_child(mesh)
 	return root
 

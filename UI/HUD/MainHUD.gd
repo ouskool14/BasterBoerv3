@@ -5,6 +5,7 @@ extends CanvasLayer
 
 @onready var date_label: Label = $DateLabel
 @onready var season_icon: Label = $SeasonIcon
+@onready var time_label: Label = $TimeLabel
 @onready var weather_label: Label = $WeatherLabel
 @onready var money_label: Label = $MoneyLabel
 @onready var alert_badge: Button = $AlertBadge
@@ -52,6 +53,13 @@ func _on_season_changed(_season = null, _date = null):
 
 func _on_weather_changed(_new_weather = null, _old_weather = null):
 	_update_display()
+
+func _process(_delta: float):
+	# Update time display every frame for smooth ticking
+	if _time_system and time_label:
+		var time_str = _time_system.GetTimeString()
+		if time_str:
+			time_label.text = time_str
 
 func _update_display():
 	if _time_system:

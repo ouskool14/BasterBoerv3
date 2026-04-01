@@ -505,7 +505,7 @@ namespace LandManagementSim.Simulation
 					// Precompute variation time AND animation variation together
 					float variationRoll = (float)_rng.NextDouble();
 
-					animal.NextVariationTime = 2f + variationRoll * 5f;
+					animal.NextVariationTime = 5f + variationRoll * 10f;
 
 					// Optional: drive animation variation off same roll (no extra RNG)
 					if (variationRoll < 0.3f)

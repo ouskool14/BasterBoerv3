@@ -114,6 +114,28 @@ namespace BasterBoer.Core
 			GD.Print("[Bootstrap] SaveManager ready.");
 
 			GD.Print("[Bootstrap] All systems initialized successfully.");
+
+			// Wire WorldChunkStreamer to player node (deferred — main scene loads after autoloads)
+			CallDeferred(MethodName.WirePlayerToChunkStreamer);
+		}
+
+		/// <summary>
+		/// Finds the player node in the main scene and wires it to WorldChunkStreamer.
+		/// Called deferred because autoloads load before the main scene.
+		/// </summary>
+		private void WirePlayerToChunkStreamer()
+		{
+			var player = GetTree().Root.FindChild("Boer", true, false) as Node3D;
+			var streamer = WorldStreaming.WorldChunkStreamer.Instance;
+			if (player != null && streamer != null)
+			{
+				streamer.SetPlayerNode(player);
+				GD.Print("[Bootstrap] WorldChunkStreamer wired to player node.");
+			}
+			else
+			{
+				GD.PrintErr("[Bootstrap] Could not wire WorldChunkStreamer: player or streamer not found.");
+			}
 		}
 
 		/// <summary>

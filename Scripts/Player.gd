@@ -32,11 +32,32 @@ var gravity        : float = ProjectSettings.get_setting("physics/3d/default_gra
 var _cam_yaw       : float = 0.0   # horizontal camera rotation (Y axis)
 var _cam_pitch     : float = -20.0 # vertical camera rotation (X axis), start slightly above
 var _current_bakkie : Node3D = null # reference to the bakkie node we are driving
+var _streamer      : Node = null    # cached WorldChunkStreamer reference
 
-# ── READY ─────────────────────────────────────────────────────────────────────
 func _ready() -> void:
 	spring_arm.spring_length = cam_distance
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+	# Cache streamer reference via Godot autoload path
+	# (GDScript can't access C# static properties like .Instance)
+	_streamer = get_node_or_null("/root/WorldChunkStreamer")
+
+	# If terrain isn't loaded yet, wait for the signal from WorldChunkStreamer
+	# that confirms the center chunk's collision is in the scene tree.
+	if _streamer and not _streamer.IsInitialLoadComplete:
+		await _streamer.InitialTerrainReady
+
+	_snap_to_terrain()
+
+func _snap_to_terrain() -> void:
+	if _streamer and _streamer.has_method("GetTerrainHeightAt"):
+		var h : float = _streamer.GetTerrainHeightAt(global_position.x, global_position.z)
+		global_position.y = h + 1.0
+		velocity.y = 0.0
+		move_and_slide()
+		print("[Player] Snapped to terrain height: ", h, " at (", global_position.x, ", ", global_position.z, ")")
+	else:
+		push_warning("[Player] WorldChunkStreamer not found — using scene Y position.")
 
 # ── INPUT ─────────────────────────────────────────────────────────────────────
 func _unhandled_input(event: InputEvent) -> void:
@@ -69,9 +90,32 @@ func _physics_process(delta: float) -> void:
 
 # ── ON FOOT ───────────────────────────────────────────────────────────────────
 func _process_foot(delta: float) -> void:
-	# Gravity
+	# Gravity and Anti-Void Protection (raycast-based)
 	if not is_on_floor():
 		velocity.y -= gravity * delta
+
+		# Raycast down to find the actual collision surface, not a mathematical height.
+		# This avoids the bounce loop caused by height/collision mismatch.
+		var space_state := get_world_3d().direct_space_state
+		var ray_origin := global_position + Vector3.UP * 2.0  # start slightly above
+		var ray_end := global_position + Vector3.DOWN * 50.0  # cast 50m below
+		var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
+		query.collision_mask = 1  # default physics layer (terrain)
+		var result := space_state.intersect_ray(query)
+
+		if result:
+			var ground_y : float = result.position.y
+			# Only teleport up if we are 3+ metres below the actual ground surface
+			if global_position.y < ground_y - 3.0:
+				global_position.y = ground_y + 1.0
+				velocity.y = 0.0
+		else:
+			# No ground found within 50m — fallback to streamer math height
+			if _streamer and _streamer.has_method("GetTerrainHeightAt"):
+				var h : float = _streamer.GetTerrainHeightAt(global_position.x, global_position.z)
+				if global_position.y < h - 5.0:
+					global_position.y = h + 1.0
+					velocity.y = 0.0
 
 	# Jump
 	if Input.is_action_just_pressed("jump") and is_on_floor():
@@ -98,7 +142,7 @@ func _process_foot(delta: float) -> void:
 	move_and_slide()
 
 # ── BAKKIE ────────────────────────────────────────────────────────────────────
-func _process_bakkie(delta: float) -> void:
+func _process_bakkie(_delta: float) -> void:
 	# Driving is handled by the Bakkie node itself.
 	# Player just sits inside and the camera follows the bakkie's position.
 	# We keep Player's global_position glued to the bakkie seat.

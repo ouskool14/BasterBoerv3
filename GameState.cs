@@ -40,8 +40,8 @@ public partial class GameState : Node
 	public float TimeOfDay { get; set; } = 8.0f; // 0.0 to 24.0 hours
 	public WeatherState CurrentWeather { get; set; } = WeatherState.Clear;
 
-	[Export] public float MapSizeX { get; set; } = 4000f;
-	[Export] public float MapSizeZ { get; set; } = 4000f;
+	[Export] public float MapSizeX { get; set; } = 2048f;
+	[Export] public float MapSizeZ { get; set; } = 2048f;
 	[Export] public int WorldSeed { get; set; } = 12345;
 	[Signal]
 	public delegate void WeatherChangedEventHandler(WeatherState newWeather, WeatherState oldWeather);

@@ -43,6 +43,9 @@ namespace LandManagementSim.Terrain
 			_invCellSize = 1f / cellSize;
 			_width = Mathf.CeilToInt(worldSizeX / cellSize) + 1;
 			_depth = Mathf.CeilToInt(worldSizeZ / cellSize) + 1;
+			// World is centered on (0,0) so the grid spans from -worldSize/2 to +worldSize/2.
+			// This matches the chunk grid layout where chunk (0,0) has its southwest corner
+			// at (0,0) and the full map extends symmetrically around the origin.
 			_originX = -worldSizeX * 0.5f;
 			_originZ = -worldSizeZ * 0.5f;
 

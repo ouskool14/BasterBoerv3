@@ -64,6 +64,11 @@ public partial class FenceSystem : Node3D
 		}
 		_instance = this;
 
+		// Force node to origin — fence uses world-space coordinates internally,
+		// and child MultiMesh instances are relative to this node's transform.
+		Position = Vector3.Zero;
+		GD.Print($"[FenceSystem] Node position forced to origin. Was at {Position}.");
+
 		// Defer initialization so ALL other nodes (including GameState) have
 		// had their _Ready() called first, regardless of scene tree order.
 		CallDeferred(MethodName.Initialize);
@@ -79,9 +84,9 @@ public partial class FenceSystem : Node3D
 		{
 			GD.PrintErr("[FenceSystem] WARNING: GameState.Instance is still null after deferred init. " +
 						"GameState node may not be in the scene. " +
-						"Using default map size 4000x4000 and seed 12345.");
-			_mapX = 4000f;
-			_mapZ = 4000f;
+						"Using default map size 2048x2048 and seed 12345.");
+			_mapX = 2048f;
+			_mapZ = 2048f;
 			_worldSeed = 12345;
 		}
 		else
@@ -175,6 +180,8 @@ public partial class FenceSystem : Node3D
 		{
 			var st = new SurfaceTool();
 			st.CreateFrom(sourceMesh, s);
+			// Must generate normals first, or GenerateTangents crashes Godot internally
+			st.GenerateNormals();
 			st.GenerateTangents();
 			if (s == 0)
 				withTangents = st.Commit();
@@ -360,7 +367,7 @@ public partial class FenceSystem : Node3D
 
 	private float GetTerrainHeight(float x, float z)
 	{
-		return TerrainGenerator.GetTerrainHeight(x, z);
+		return LandManagementSim.Terrain.TerrainQuery.GetHeight(x, z);
 	}
 
 	private void GenerateWires(Vector3 start, Vector3 end, FenceSegmentData segment)
@@ -405,6 +412,10 @@ public partial class FenceSystem : Node3D
 		_generationThread.Join();
 		GD.Print($"[FenceSystem] BuildVisuals() started. Chunks to build: {_chunkFenceData.Count}");
 
+		// Fence data is in world space — convert to local space relative to this node
+		Vector3 nodeGlobalPos = GlobalPosition;
+		GD.Print($"[FenceSystem] FenceSystem global position: {nodeGlobalPos}");
+
 		int builtWithGeometry = 0;
 
 		foreach (var kvp in _chunkFenceData)
@@ -419,13 +430,13 @@ public partial class FenceSystem : Node3D
 			bool hasAny = false;
 
 			if (PoleMesh != null && data.Poles.Count > 0)
-			{ chunkNode.AddChild(CreateMultiMesh(PoleMesh, data.Poles)); hasAny = true; }
+			{ chunkNode.AddChild(CreateMultiMesh(PoleMesh, data.Poles, nodeGlobalPos)); hasAny = true; }
 
 			if (StickMesh != null && data.Sticks.Count > 0)
-			{ chunkNode.AddChild(CreateMultiMesh(StickMesh, data.Sticks)); hasAny = true; }
+			{ chunkNode.AddChild(CreateMultiMesh(StickMesh, data.Sticks, nodeGlobalPos)); hasAny = true; }
 
 			if (WireMesh != null && data.Wires.Count > 0)
-			{ chunkNode.AddChild(CreateWireMultiMesh(WireMesh, data.Wires)); hasAny = true; }
+			{ chunkNode.AddChild(CreateWireMultiMesh(WireMesh, data.Wires, nodeGlobalPos)); hasAny = true; }
 
 			if (hasAny) builtWithGeometry++;
 		}
@@ -455,11 +466,10 @@ public partial class FenceSystem : Node3D
 		// Always print where the fence is so we know where to look
 		float halfX = (_mapX * MapInsetPercent) / 2f;
 		float halfZ = (_mapZ * MapInsetPercent) / 2f;
-		GD.Print($"[FenceSystem] *** FENCE IS AT perimeter ±({halfX:F0}, {halfZ:F0}) world units from origin. " +
-				 $"Player must travel to the MAP EDGE to see it! ***");
+		GD.Print($"[FenceSystem] *** FENCE IS AT perimeter ±({halfX:F0}, {halfZ:F0}) world units from origin. ***");
 	}
 
-	private MultiMeshInstance3D CreateMultiMesh(Mesh mesh, List<Vector3> positions)
+	private MultiMeshInstance3D CreateMultiMesh(Mesh mesh, List<Vector3> positions, Vector3 parentNodeGlobalPos)
 	{
 		MultiMesh mm = new MultiMesh
 		{
@@ -470,7 +480,9 @@ public partial class FenceSystem : Node3D
 
 		for (int i = 0; i < positions.Count; i++)
 		{
-			mm.SetInstanceTransform(i, new Transform3D(Basis.Identity, positions[i]));
+			// Convert world-space position to local space relative to FenceSystem node
+			Vector3 localPos = positions[i] - parentNodeGlobalPos;
+			mm.SetInstanceTransform(i, new Transform3D(Basis.Identity, localPos));
 		}
 
 		var mmi = new MultiMeshInstance3D { Multimesh = mm };
@@ -478,7 +490,7 @@ public partial class FenceSystem : Node3D
 		return mmi;
 	}
 
-	private MultiMeshInstance3D CreateWireMultiMesh(Mesh mesh, List<WireInstance> wires)
+	private MultiMeshInstance3D CreateWireMultiMesh(Mesh mesh, List<WireInstance> wires, Vector3 parentNodeGlobalPos)
 	{
 		MultiMesh mm = new MultiMesh
 		{
@@ -493,10 +505,12 @@ public partial class FenceSystem : Node3D
 
 			Basis basis = Basis.Identity;
 			basis = basis.Rotated(Vector3.Up, w.Yaw);
-			basis = basis.Rotated(Vector3.Right, -w.Pitch); // Flipped pitch as Godot rotation usually expects negative for upward look
+			basis = basis.Rotated(Vector3.Right, -w.Pitch);
 			basis = basis.Scaled(new Vector3(1, 1, w.LengthScale));
 
-			mm.SetInstanceTransform(i, new Transform3D(basis, w.Position));
+			// Convert world-space position to local space relative to FenceSystem node
+			Vector3 localPos = w.Position - parentNodeGlobalPos;
+			mm.SetInstanceTransform(i, new Transform3D(basis, localPos));
 		}
 
 		var mmi = new MultiMeshInstance3D { Multimesh = mm };

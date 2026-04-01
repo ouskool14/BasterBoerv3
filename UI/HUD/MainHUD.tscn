@@ -20,10 +20,17 @@ offset_right = 340.0
 offset_bottom = 30.0
 text = "☀"
 
-[node name="WeatherLabel" type="Label" parent="."]
+[node name="TimeLabel" type="Label" parent="."]
 offset_left = 350.0
 offset_top = 10.0
-offset_right = 480.0
+offset_right = 440.0
+offset_bottom = 30.0
+text = "08:00"
+
+[node name="WeatherLabel" type="Label" parent="."]
+offset_left = 450.0
+offset_top = 10.0
+offset_right = 580.0
 offset_bottom = 30.0
 text = "☀ Clear"
 

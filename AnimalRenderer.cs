@@ -46,7 +46,9 @@ public partial class AnimalRenderer : Node3D
 	private Dictionary<ulong, AnimalRenderState> _animalRenderStates = new();
 
 	// Constant blend duration for individual offset changes
-	private const float OffsetShuffleDuration = 0.35f;
+	// At 1.4 m/s walk speed, a 10m offset takes ~7s to walk.
+	// 3s gives a natural trot pace for typical offsets within herd spread radius.
+	private const float OffsetShuffleDuration = 3.0f;
 
 	// Maximum plausible jump distance before we snap instead of interpolate.
 	// If a herd center moves more than this between sim samples, skip the blend.
@@ -242,10 +244,10 @@ public partial class AnimalRenderer : Node3D
 
 	public override void _Ready()
 	{
-		// Initialize terrain heightmap (18KB for 4000m at 4m resolution)
+		// Initialize terrain heightmap (18KB for 2048m at 4m resolution)
 		var gameState = GetNodeOrNull<GameState>("/root/GameState");
-		float mapX = gameState?.MapSizeX ?? 4000f;
-		float mapZ = gameState?.MapSizeZ ?? 4000f;
+		float mapX = gameState?.MapSizeX ?? 2048f;
+		float mapZ = gameState?.MapSizeZ ?? 2048f;
 		TerrainQuery.Initialize(mapX, mapZ);
 
 		// Extract meshes from GLB PackedScenes and map to species
@@ -279,6 +281,29 @@ public partial class AnimalRenderer : Node3D
 			Vector3 zebraPos = TestHerdPosition + new Vector3(40f, 0f, 40f);
 			AnimalSystem.Instance.CreateHerd(Species.Zebra, zebraPos, TestHerdSeed + 1);
 			GD.Print($"[AnimalRenderer] Spawned test Zebra herd at {zebraPos}");
+
+			// Herd 3: Impala (next to Kudu)
+			Vector3 impalaPos = TestHerdPosition + new Vector3(15f, 0f, 0f);
+			AnimalSystem.Instance.CreateHerd(Species.Impala, impalaPos, TestHerdSeed + 2);
+			GD.Print($"[AnimalRenderer] Spawned test Impala herd at {impalaPos}");
+
+			// Herd 4: Buffalo (near Kudu)
+			Vector3 buffaloPos = TestHerdPosition + new Vector3(-20f, 0f, 10f);
+			AnimalSystem.Instance.CreateHerd(Species.Buffalo, buffaloPos, TestHerdSeed + 3);
+			GD.Print($"[AnimalRenderer] Spawned test Buffalo herd at {buffaloPos}");
+
+			// Herd 5: Wildebeest (near Impala)
+			Vector3 wildebeestPos = TestHerdPosition + new Vector3(30f, 0f, -15f);
+			AnimalSystem.Instance.CreateHerd(Species.Wildebeest, wildebeestPos, TestHerdSeed + 4);
+			GD.Print($"[AnimalRenderer] Spawned test Wildebeest herd at {wildebeestPos}");
+		}
+
+		// Warn about species with herds but no mesh
+		foreach (var herd in AnimalSystem.Instance.Herds)
+		{
+			if (!_speciesMeshes.ContainsKey(herd.Species))
+				GD.PrintErr($"[AnimalRenderer] WARNING: {herd.Species} herd exists but no mesh loaded. " +
+							$"Assign the .glb file to {herd.Species}Scene in the Inspector.");
 		}
 
 		GD.Print($"[AnimalRenderer] Ready. {_speciesMeshes.Count} species meshes loaded.");
@@ -355,7 +380,11 @@ public partial class AnimalRenderer : Node3D
 
 			// Skip species we have no mesh for
 			if (!_speciesMeshes.ContainsKey(herd.Species))
+			{
+				if (!visibleHerdIds.Contains(herd.HerdId))
+					GD.Print($"[AnimalRenderer] Skipping {herd.Species} herd #{herd.HerdId}: no mesh loaded. Assign the .glb in Inspector.");
 				continue;
+			}
 
 			// Distance cull entire herd
 			float herdDistSq = herd.CenterPosition.DistanceSquaredTo(playerPos);
@@ -380,6 +409,10 @@ public partial class AnimalRenderer : Node3D
 				herdBasis = herdBasis.Rotated(Vector3.Up, herdState.RenderYaw);
 			}
 
+			// Get terrain-aligned basis once per herd (optimization)
+			// Note: Animals in a herd are close enough that sharing a basis is visually indistinguishable
+			Basis terrainAlignedBasis = GetTerrainAlignedBasis(herdState.RenderCenter.X, herdState.RenderCenter.Z, herdState.RenderYaw);
+
 			for (int i = 0; i < animalCount; i++)
 			{
 				if (animals[i].Health <= 0f) continue;
@@ -396,10 +429,8 @@ public partial class AnimalRenderer : Node3D
 				// Mark this animal as visible
 				visibleAnimalUids.Add(animals[i].UniqueId);
 
-				// Get terrain-aligned basis for this animal's position
-				// Note: We could optimize by computing this once per herd since animals in a herd
-				// are close enough that sharing a basis is visually indistinguishable
-				Basis finalBasis = GetTerrainAlignedBasis(worldPos.X, worldPos.Z, herdState.RenderYaw);
+				// Use the precomputed terrain-aligned basis for the herd
+				Basis finalBasis = terrainAlignedBasis;
 
 				transforms.Add(new Transform3D(finalBasis, worldPos));
 			}
@@ -493,13 +524,24 @@ public partial class AnimalRenderer : Node3D
 		float hRight  = TerrainQuery.GetHeight(x + sampleOffset, z);
 		float hForward= TerrainQuery.GetHeight(x, z + sampleOffset);
 
-		Vector3 right   = new Vector3(sampleOffset, hRight   - hCenter, 0f).Normalized();
-		Vector3 forward = new Vector3(0f,           hForward - hCenter, sampleOffset).Normalized();
-		Vector3 up      = right.Cross(forward).Normalized();
+		// Reconstruct terrain normal from finite differences
+		// IMPORTANT: In Godot's right-handed system, Z cross X gives upward normal
+		Vector3 tangentX = new Vector3(sampleOffset, hRight - hCenter, 0f);
+		Vector3 tangentZ = new Vector3(0f, hForward - hCenter, sampleOffset);
+		Vector3 up = tangentZ.Cross(tangentX).Normalized();
 
-		// Yaw rotation around terrain-derived up vector
-		Basis terrainBasis = new Basis(right, up, -forward);
-		Basis yawBasis     = new Basis(Vector3.Up, yaw);
+		// Build orthonormal basis aligned to terrain — same pattern as FloraPopulator
+		Vector3 right = Vector3.Up.Cross(up);
+		if (right.LengthSquared() < 0.001f)
+			right = Vector3.Right;
+		else
+			right = right.Normalized();
+
+		Vector3 forward = up.Cross(right).Normalized();
+
+		// Yaw around terrain-aligned up (not world up) so animals rotate correctly on slopes
+		Basis terrainBasis = new Basis(right, up, forward);
+		Basis yawBasis     = new Basis(up, yaw);
 
 		return terrainBasis * yawBasis;
 	}

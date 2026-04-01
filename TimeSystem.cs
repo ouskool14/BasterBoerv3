@@ -75,6 +75,8 @@ namespace BasterBoer.Core.Systems
 			// Add continuous time-of-day progression
 			float timeProgressPerSecond = 24.0f / DayDurationSeconds;
 			_timeOfDay += (float)delta * timeProgressPerSecond;
+			_timeOfDay = Mathf.Wrap(_timeOfDay, 0f, 24f);
+			GameState.Instance.UpdateTimeOfDay(_timeOfDay);
 
 			if (_accumulatedTime >= SecondsPerDay)
 			{
@@ -156,8 +158,10 @@ namespace BasterBoer.Core.Systems
 		/// </summary>
 		public string GetTimeString()
 		{
-			int hours = (int)_timeOfDay;
-			int minutes = (int)((_timeOfDay - hours) * 60);
+			float wrapped = _timeOfDay % 24f;
+			if (wrapped < 0f) wrapped += 24f;
+			int hours = (int)wrapped;
+			int minutes = (int)((wrapped - hours) * 60);
 			return $"{hours:D2}:{minutes:D2}";
 		}
 	}

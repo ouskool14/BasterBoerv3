@@ -22,6 +22,36 @@ namespace BasterBoer.Core.Economy
 		/// <summary>Emitted when cash balance changes significantly.</summary>
 		public event System.Action<float> OnCashBalanceChanged;
 
+		#region Public API — Direct spend/balance queries
+
+		/// <summary>Returns true if the current balance can cover the given amount.</summary>
+		/// <param name="amount">Cost in ZAR to check.</param>
+		public bool CanAfford(float amount) => GetBalance() >= amount;
+
+		/// <summary>
+		/// Deducts <paramref name="amount"/> from the cash balance if funds are available.
+		/// </summary>
+		/// <param name="amount">Cost in ZAR.</param>
+		/// <param name="description">Optional transaction description.</param>
+		/// <returns>True if the transaction succeeded.</returns>
+		public bool SpendMoney(float amount, string description = "")
+		{
+			if (!CanAfford(amount)) return false;
+
+			var gameState = GameState.Instance;
+			if (gameState == null) return false;
+
+			gameState.CashBalance -= amount;
+			OnCashBalanceChanged?.Invoke(gameState.CashBalance);
+			GD.Print($"[Economy] Spent R{amount:F2}: {description}. Balance: R{gameState.CashBalance:F2}");
+			return true;
+		}
+
+		/// <summary>Returns the current cash balance in ZAR.</summary>
+		public float GetBalance() => GameState.Instance?.CashBalance ?? 0f;
+
+		#endregion
+
 		/// <summary>Current month's revenue accumulator.</summary>
 		public float MonthlyRevenue { get; private set; }
 

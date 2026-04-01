@@ -12,7 +12,7 @@ namespace WorldStreaming
 		// South African landscape parameters
 		private const float HEIGHT_SCALE = 25f;      // Maximum elevation variation
 		private const float NOISE_FREQUENCY = 0.003f; // Terrain feature scale
-		private const int TERRAIN_RESOLUTION = 64;    // Vertices per chunk side
+		private const int TERRAIN_RESOLUTION = 128;    // Vertices per chunk side
 
 		private static FastNoiseLite _heightNoise;
 		private static FastNoiseLite _moistureNoise;
@@ -71,11 +71,13 @@ namespace WorldStreaming
 					float lz0 = z * vertexSpacing - halfSize;
 					float lz1 = (z + 1) * vertexSpacing - halfSize;
 
-					// World positions for noise sampling
-					float wx0 = worldOrigin.X + x * vertexSpacing;
-					float wx1 = worldOrigin.X + (x + 1) * vertexSpacing;
-					float wz0 = worldOrigin.Z + z * vertexSpacing;
-					float wz1 = worldOrigin.Z + (z + 1) * vertexSpacing;
+					// World positions for noise sampling — must match local vertex
+					// positions so that when the mesh is placed at worldOrigin,
+					// the height at each vertex corresponds to the correct world coord.
+					float wx0 = worldOrigin.X + lx0;
+					float wx1 = worldOrigin.X + lx1;
+					float wz0 = worldOrigin.Z + lz0;
+					float wz1 = worldOrigin.Z + lz1;
 
 					// Heights from world positions
 					float h00 = GetTerrainHeight(wx0, wz0);

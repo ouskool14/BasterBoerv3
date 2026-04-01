@@ -1,3 +1,4 @@
+using Basterboer.Buildings;
 using Godot;
 using System;
 using System.Collections.Generic;
@@ -14,8 +15,21 @@ namespace WorldStreaming
 	[GlobalClass]
 	public partial class WorldChunkStreamer : Node
 	{
+		/// <summary>
+		/// Emitted when the center chunk's collision is in the scene tree.
+		/// Player/Bakkie can safely spawn after this signal fires.
+		/// </summary>
+		[Signal]
+		public delegate void InitialTerrainReadyEventHandler();
+
 		private static WorldChunkStreamer _instance;
 		public static WorldChunkStreamer Instance => _instance;
+
+		/// <summary>
+		/// True after the center chunk has been synchronously loaded and its
+		/// collision is in the scene tree. Safe to spawn player when true.
+		/// </summary>
+		public bool IsInitialLoadComplete { get; private set; }
 
 		[ExportGroup("Player Tracking")]
 		[Export]
@@ -37,6 +51,7 @@ namespace WorldStreaming
 
 		// Runtime state
 		private Node3D _playerNode;
+		private BuildingRenderer _buildingRenderer;
 		private ChunkCoord _currentPlayerChunk;
 		private readonly Dictionary<ChunkCoord, WorldChunk> _activeChunks = 
 			new Dictionary<ChunkCoord, WorldChunk>();
@@ -66,7 +81,14 @@ namespace WorldStreaming
 
 		public override void _Ready()
 		{
-			if (!string.IsNullOrEmpty(PlayerNodePath.ToString()))
+			// Cache BuildingRenderer reference for performance (no GetNode() in loops)
+			_buildingRenderer = BuildingRenderer.Instance;
+			if (_buildingRenderer == null)
+			{
+				GD.PrintErr("[WorldChunkStreamer] BuildingRenderer not found!");
+			}
+
+			if (PlayerNodePath != null && !PlayerNodePath.IsEmpty)
 			{
 				_playerNode = GetNodeOrNull<Node3D>(PlayerNodePath);
 				if (_playerNode == null)
@@ -96,6 +118,15 @@ namespace WorldStreaming
 				_updateTimer = 0f;
 				CheckPlayerMovement();
 			}
+		}
+
+		/// <summary>
+		/// Gets terrain height at world coordinates via the unified TerrainQuery path.
+		/// Falls back to TerrainGenerator.GetTerrainHeight() when TerrainQuery is uninitialized.
+		/// </summary>
+		public float GetTerrainHeightAt(float worldX, float worldZ)
+		{
+			return LandManagementSim.Terrain.TerrainQuery.GetHeight(worldX, worldZ);
 		}
 
 		/// <summary>
@@ -146,13 +177,21 @@ namespace WorldStreaming
 		private void InitialChunkLoad()
 		{
 			ChunkCoord[] initialChunks = _currentPlayerChunk.Get3x3Grid();
-			
-			// Sort by distance from center (player chunk loads first)
-			Array.Sort(initialChunks, (a, b) => 
-				a.ManhattanDistance(_currentPlayerChunk).CompareTo(b.ManhattanDistance(_currentPlayerChunk)));
 
+			// 1. Load the center chunk SYNCHRONOUSLY so collision exists before
+			//    any physics frame runs. The player must be able to stand on this.
+			LoadChunkSync(_currentPlayerChunk);
+
+			// Mark initial load complete and emit signal so Player/Bakkie can spawn
+			IsInitialLoadComplete = true;
+			EmitSignal(SignalName.InitialTerrainReady);
+			GD.Print("[WorldChunkStreamer] Center chunk ready — InitialTerrainReady emitted");
+
+			// 2. Load the remaining 8 surrounding chunks asynchronously
 			foreach (var coord in initialChunks)
 			{
+				if (coord == _currentPlayerChunk) continue; // Already loaded sync
+
 				if (_activeChunks.Count + _chunksBeingLoaded.Count < MaxActiveChunks)
 				{
 					LoadChunkAsync(coord);
@@ -277,10 +316,44 @@ namespace WorldStreaming
 					}
 					
 					chunk.ApplyBuildResult(buildResult);
+					_buildingRenderer?.OnChunkLoaded(buildResult.Coordinate);
 					resultsApplied++;
 				}
+			}
+		}
 
-				resultsApplied++;
+		/// <summary>
+		/// Synchronously loads a chunk: builds content on the current thread and
+		/// immediately adds it to the scene tree with collision. Used for the
+		/// initial center chunk so the player can spawn before any physics frame.
+		/// </summary>
+		private void LoadChunkSync(ChunkCoord coord)
+		{
+			if (_activeChunks.ContainsKey(coord))
+			{
+				return; // Already loaded
+			}
+
+			try
+			{
+				var chunk = new WorldChunk();
+				chunk.Initialize(coord, ChunkSize);
+
+				// Build on main thread — blocking but guaranteed done before return
+				var buildResult = chunk.BuildChunkContent();
+
+				// Add to scene tree and apply result immediately
+				AddChild(chunk);
+				chunk.ApplyBuildResult(buildResult);
+				_buildingRenderer?.OnChunkLoaded(coord);
+
+				_activeChunks[coord] = chunk;
+
+				GD.Print($"[WorldChunkStreamer] Sync loaded center chunk {coord}");
+			}
+			catch (Exception ex)
+			{
+				GD.PrintErr($"[WorldChunkStreamer] Error sync loading chunk {coord}: {ex}");
 			}
 		}
 
@@ -290,6 +363,9 @@ namespace WorldStreaming
 			{
 				return;
 			}
+
+			// Notify BuildingRenderer before removing chunk
+			_buildingRenderer?.OnChunkUnloaded(coord);
 
 			chunk.UnloadChunk();
 			if (chunk.IsInsideTree())

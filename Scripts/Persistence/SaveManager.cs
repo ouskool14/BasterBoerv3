@@ -213,8 +213,8 @@ namespace BasterBoer.Persistence
 				SaveVersion = CurrentVersion,
 				GameVersion = "0.1",
 				WorldSeed = gameState?.WorldSeed ?? 12345,
-				MapSizeX = gameState?.MapSizeX ?? 4000f,
-				MapSizeZ = gameState?.MapSizeZ ?? 4000f
+				MapSizeX = gameState?.MapSizeX ?? 2048f,
+				MapSizeZ = gameState?.MapSizeZ ?? 2048f
 			};
 
 			// Time

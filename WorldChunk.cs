@@ -92,6 +92,29 @@ namespace WorldStreaming
 
 			AddChild(_terrainMeshInstance);
 
+			// Collision — built from the same mesh so heights always match what the player sees.
+			// CreateTrimeshShape is exact but not convex — perfect for open terrain.
+			var concaveShape = buildResult.TerrainMesh.CreateTrimeshShape();
+			if (concaveShape != null)
+			{
+				// BackfaceCollision ensures the CharacterBody3D hits the surface regardless
+				// of which side the physics engine approaches from (needed with Jolt).
+				concaveShape.BackfaceCollision = true;
+
+				var terrainCollision = new CollisionShape3D
+				{
+					Shape = concaveShape,
+					Name = "TerrainCollision"
+				};
+				var terrainBody = new StaticBody3D { Name = "TerrainBody" };
+				terrainBody.AddChild(terrainCollision);
+				AddChild(terrainBody);
+			}
+			else
+			{
+				GD.PushError($"[WorldChunk] CreateTrimeshShape returned null for chunk {Coordinate} — no collision!");
+			}
+
 			// Create MultiMeshInstance3D for each flora type
 			foreach (var kvp in buildResult.FloraMultiMeshes)
 			{

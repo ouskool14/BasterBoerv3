@@ -51,7 +51,7 @@ func _ready():
 		if _time_system.has_signal("OnYearPassed"):
 			_time_system.OnYearPassed.connect(update_date_time)
 		if _time_system.has_signal("OnSeasonalEvent"):
-			_time_system.OnSeasonalEvent.connect(func(event, date): add_notification("Seasonal Event: " + str(event)))
+			_time_system.OnSeasonalEvent.connect(func(event, _date): add_notification("Seasonal Event: " + str(event)))
 
 	# Connect signals from EconomySystem
 	if _economy_system:
