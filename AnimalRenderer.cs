@@ -248,7 +248,7 @@ public partial class AnimalRenderer : Node3D
 		var gameState = GetNodeOrNull<GameState>("/root/GameState");
 		float mapX = gameState?.MapSizeX ?? 2048f;
 		float mapZ = gameState?.MapSizeZ ?? 2048f;
-		TerrainQuery.Initialize(mapX, mapZ);
+		TerrainQuery.Initialize();
 
 		// Extract meshes from GLB PackedScenes and map to species
 		TryLoadMesh(KuduScene, Species.Kudu);

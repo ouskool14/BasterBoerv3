@@ -319,7 +319,7 @@ namespace Basterboer.Buildings
 				Vector3 hitPosition = (Vector3)result["position"];
 				
 				// Snap to terrain height for consistency
-				float terrainHeight = TerrainGenerator.GetTerrainHeight(hitPosition.X, hitPosition.Z);
+				float terrainHeight = LandManagementSim.Terrain.TerrainQuery.GetHeight(hitPosition.X, hitPosition.Z);
 				hitPosition.Y = terrainHeight;
 
 				return hitPosition;

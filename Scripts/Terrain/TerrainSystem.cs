@@ -1,0 +1,1375 @@
+using Godot;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace WorldStreaming.Terrain
+{
+    /// <summary>
+    /// Central terrain simulation and data system.
+    /// Generates deterministic, layered terrain with rich gameplay-relevant data.
+    /// 
+    /// Architecture: Singleton-style system that sits between GameState and render layer.
+    /// - GameState owns world seed and map dimensions
+    /// - WorldChunkStreamer decides what chunks are active
+    /// - TerrainSystem produces rich terrain data for those chunks
+    /// - TerrainQuery consumes cached terrain fields for fast lookups
+    /// - WaterSystem and TimeSystem read masks and seasonal coefficients
+    /// </summary>
+    [GlobalClass]
+    public partial class TerrainSystem : Node
+    {
+        #region Singleton
+        
+        private static TerrainSystem _instance;
+        public static TerrainSystem Instance => _instance;
+        
+        public override void _EnterTree()
+        {
+            if (_instance != null && _instance != this)
+            {
+                GD.PushWarning("[TerrainSystem] Multiple instances detected. Keeping first.");
+                QueueFree();
+                return;
+            }
+            _instance = this;
+        }
+        
+        #endregion
+        
+        #region Configuration
+        
+        [Export]
+        public TerrainConfig Config { get; set; }
+        
+        [Export]
+        public bool AutoInitialize { get; set; } = true;
+        
+        #endregion
+        
+        #region Noise Generators
+        
+        // Macro landform noise
+        private FastNoiseLite _macroNoise;
+        private FastNoiseLite _ridgeNoise;
+        private FastNoiseLite _valleyNoise;
+        
+        // Flat area control
+        private FastNoiseLite _flatAreaNoise;
+        
+        // Ridge and hill structure
+        private FastNoiseLite _hillNoise;
+        private FastNoiseLite _directionNoise;
+        
+        // Hydrology
+        private FastNoiseLite _flowNoise;
+        private FastNoiseLite _moistureNoise;
+        
+        // Erosion
+        private FastNoiseLite _erosionNoise;
+        private FastNoiseLite _rockNoise;
+        
+        // Roads
+        private FastNoiseLite _roadNoise;
+        
+        // Biome/Soil
+        private FastNoiseLite _biomeNoise;
+        private FastNoiseLite _soilNoise;
+        
+        #endregion
+        
+        #region Global Feature Placement
+        
+        private List<WaterholeInfo> _globalWaterholes;
+        private List<Vector3> _globalRoadNodes;
+        private bool _featuresGenerated = false;
+        
+        #endregion
+        
+        #region Chunk Cache
+        
+        private readonly Dictionary<ChunkCoord, TerrainChunkData> _chunkCache = new();
+        private readonly Queue<ChunkCoord> _cacheAccessOrder = new();
+        private readonly object _cacheLock = new();
+        
+        #endregion
+        
+        #region Seasonal State
+        
+        public float GlobalWetness { get; private set; } = 0.5f;
+        public float GlobalDryness { get; private set; } = 0.5f;
+        public float SeasonalGreenBias { get; private set; } = 0.5f;
+        
+        #endregion
+        
+        #region Performance Tracking
+        
+        public int CacheHits { get; private set; }
+        public int CacheMisses { get; private set; }
+        public float AverageBuildTimeMs { get; private set; }
+        private float _totalBuildTime;
+        private int _buildCount;
+        
+        #endregion
+        
+        #region Initialization
+        
+        public override void _Ready()
+        {
+            if (AutoInitialize)
+            {
+                Initialize();
+            }
+        }
+        
+        /// <summary>
+        /// Initializes the terrain system with the current configuration.
+        /// </summary>
+        public void Initialize()
+        {
+            if (Config == null)
+            {
+                Config = TerrainConfig.CreateDefaultBushveldConfig();
+                GD.Print("[TerrainSystem] Using default bushveld configuration");
+            }
+            
+            int seed = Config.WorldSeed;
+            GD.Print($"[TerrainSystem] Initializing with seed {seed}");
+            
+            InitializeNoiseGenerators(seed);
+            GenerateGlobalFeatures();
+            
+            GD.Print("[TerrainSystem] Initialization complete");
+        }
+        
+        /// <summary>
+        /// Initializes all noise generators with seeded values.
+        /// </summary>
+        private void InitializeNoiseGenerators(int baseSeed)
+        {
+            // Macro landform - large scale terrain shape
+            _macroNoise = CreateNoise(baseSeed, Config.MacroNoiseFrequency, 
+                Config.MacroOctaves, Config.MacroPersistence, Config.MacroLacunarity);
+            
+            // Ridge structure
+            _ridgeNoise = CreateNoise(baseSeed + 1, Config.RidgeFrequency, 3, 0.5f, 2.0f,
+                FastNoiseLite.NoiseTypeEnum.Simplex);
+            
+            // Valley structure
+            _valleyNoise = CreateNoise(baseSeed + 2, Config.MacroNoiseFrequency * 0.7f, 3, 0.5f, 2.0f);
+            
+            // Flat area control
+            _flatAreaNoise = CreateNoise(baseSeed + 3, Config.FlatAreaFrequency, 2, 0.5f, 2.0f,
+                FastNoiseLite.NoiseTypeEnum.Simplex);
+            
+            // Hill detail
+            _hillNoise = CreateNoise(baseSeed + 4, Config.HillFrequency, 3, 0.5f, 2.0f);
+            
+            // Directional bias for ridges
+            _directionNoise = CreateNoise(baseSeed + 5, 0.001f, 2, 0.5f, 2.0f);
+            
+            // Flow/hydrology
+            _flowNoise = CreateNoise(baseSeed + 6, Config.FlowNoiseFrequency, 3, 0.5f, 2.0f);
+            
+            // Moisture distribution
+            _moistureNoise = CreateNoise(baseSeed + 7, Config.MacroNoiseFrequency * 0.5f, 2, 0.5f, 2.0f,
+                FastNoiseLite.NoiseTypeEnum.Cellular);
+            
+            // Erosion patterns
+            _erosionNoise = CreateNoise(baseSeed + 8, Config.ErosionNoiseFrequency, 3, 0.5f, 2.0f);
+            
+            // Rock outcrops
+            _rockNoise = CreateNoise(baseSeed + 9, 0.005f, 3, 0.5f, 2.0f);
+            
+            // Road corridors
+            _roadNoise = CreateNoise(baseSeed + 10, 0.001f, 2, 0.5f, 2.0f);
+            
+            // Biome variation
+            _biomeNoise = CreateNoise(baseSeed + 11, Config.BiomeNoiseFrequency, 2, 0.5f, 2.0f);
+            
+            // Soil types
+            _soilNoise = CreateNoise(baseSeed + 12, Config.BiomeNoiseFrequency * 1.5f, 2, 0.5f, 2.0f);
+        }
+        
+        private FastNoiseLite CreateNoise(int seed, float frequency, int octaves, 
+            float persistence, float lacunarity, FastNoiseLite.NoiseTypeEnum type = FastNoiseLite.NoiseTypeEnum.Perlin)
+        {
+            return new FastNoiseLite
+            {
+                Seed = seed,
+                NoiseType = type,
+                Frequency = frequency,
+                FractalOctaves = octaves,
+                FractalGain = persistence,
+                FractalLacunarity = lacunarity,
+                FractalType = FastNoiseLite.FractalTypeEnum.Fbm
+            };
+        }
+        
+        /// <summary>
+        /// Generates deterministic global features (waterholes, road network nodes).
+        /// These are placed in world space and affect all chunks.
+        /// </summary>
+        private void GenerateGlobalFeatures()
+        {
+            _globalWaterholes = new List<WaterholeInfo>();
+            _globalRoadNodes = new List<Vector3>();
+            
+            var gameState = GameState.Instance;
+            float worldHalfX = gameState?.MapSizeX ?? 2048f;
+            float worldHalfZ = gameState?.MapSizeZ ?? 2048f;
+            
+            // Generate waterholes using seeded blue-noise-like distribution
+            GenerateWaterholes(worldHalfX, worldHalfZ);
+            
+            // Generate road network nodes
+            GenerateRoadNodes(worldHalfX, worldHalfZ);
+            
+            _featuresGenerated = true;
+            GD.Print($"[TerrainSystem] Generated {_globalWaterholes.Count} waterholes, {_globalRoadNodes.Count} road nodes");
+        }
+        
+        private void GenerateWaterholes(float worldHalfX, float worldHalfZ)
+        {
+            // Use cell-based placement for even distribution
+            float cellSize = Mathf.Sqrt((worldHalfX * 2f * worldHalfZ * 2f) / Config.WaterholeCount);
+            int cellsX = Mathf.CeilToInt(worldHalfX * 2f / cellSize);
+            int cellsZ = Mathf.CeilToInt(worldHalfZ * 2f / cellSize);
+            
+            int waterholeId = 0;
+            
+            for (int cz = 0; cz < cellsZ && waterholeId < Config.WaterholeCount; cz++)
+            {
+                for (int cx = 0; cx < cellsX && waterholeId < Config.WaterholeCount; cx++)
+                {
+                    // Seeded random offset within cell
+                    uint hash = (uint)((cx + cz * cellsX + Config.WorldSeed) * 73856093);
+                    float offsetX = (hash % 1000) / 1000f * cellSize;
+                    float offsetZ = ((hash * 19349663) % 1000) / 1000f * cellSize;
+                    
+                    float wx = -worldHalfX + cx * cellSize + offsetX;
+                    float wz = -worldHalfZ + cz * cellSize + offsetZ;
+                    
+                    // Check if location is hydrologically plausible (low area)
+                    float macroHeight = SampleMacroElevation(wx, wz);
+                    float moisture = SampleMoisture(wx, wz);
+                    
+                    // Prefer lower areas with some moisture
+                    float suitability = (1f - macroHeight) * 0.6f + moisture * 0.4f;
+                    
+                    if (suitability > 0.4f)
+                    {
+                        float radius = Mathf.Lerp(Config.WaterholeMinRadius, 
+                            Config.WaterholeMaxRadius, (hash % 100) / 100f);
+                        
+                        _globalWaterholes.Add(new WaterholeInfo
+                        {
+                            WorldPosition = new Vector3(wx, 0f, wz),
+                            Radius = radius,
+                            Depth = Config.WaterholeDepth * (0.7f + (hash % 100) / 100f * 0.6f),
+                            BasinSteepness = Config.WaterholeBasinSteepness,
+                            Id = waterholeId++,
+                            IsActive = true
+                        });
+                    }
+                }
+            }
+        }
+        
+        private void GenerateRoadNodes(float worldHalfX, float worldHalfZ)
+        {
+            // Simple road network - nodes at regular intervals with noise offset
+            float nodeSpacing = 400f;
+            int nodesX = Mathf.CeilToInt(worldHalfX * 2f / nodeSpacing);
+            int nodesZ = Mathf.CeilToInt(worldHalfZ * 2f / nodeSpacing);
+            
+            for (int nz = 0; nz <= nodesZ; nz++)
+            {
+                for (int nx = 0; nx <= nodesX; nx++)
+                {
+                    float baseX = -worldHalfX + nx * nodeSpacing;
+                    float baseZ = -worldHalfZ + nz * nodeSpacing;
+                    
+                    // Add noise offset for organic road placement
+                    float offsetX = _roadNoise.GetNoise2D(baseX, baseZ) * nodeSpacing * 0.3f;
+                    float offsetZ = _roadNoise.GetNoise2D(baseX + 1000f, baseZ + 1000f) * nodeSpacing * 0.3f;
+                    
+                    _globalRoadNodes.Add(new Vector3(baseX + offsetX, 0f, baseZ + offsetZ));
+                }
+            }
+        }
+        
+        #endregion
+        
+        #region Chunk Generation Pipeline
+        
+        /// <summary>
+        /// Builds a complete terrain chunk with all layers and masks.
+        /// This is the main entry point for chunk generation.
+        /// </summary>
+        public TerrainChunkData BuildChunk(ChunkCoord coord)
+        {
+            // Check cache first
+            lock (_cacheLock)
+            {
+                if (_chunkCache.TryGetValue(coord, out var cached))
+                {
+                    CacheHits++;
+                    return cached;
+                }
+            }
+            
+            CacheMisses++;
+            
+            var stopwatch = new System.Diagnostics.Stopwatch();
+            stopwatch.Start();
+            
+            // Create new chunk data
+            var data = TerrainChunkData.Create(coord, Config.ChunkSize, Config.ChunkResolution);
+            
+            // Execute generation pipeline
+            ExecuteGenerationPipeline(data);
+            
+            // Build mesh from heightmap
+            BuildTerrainMesh(data);
+            
+            // Compute statistics
+            data.ComputeStatistics();
+            
+            stopwatch.Stop();
+            data.BuildTimeMs = (float)stopwatch.Elapsed.TotalMilliseconds;
+            
+            // Update performance tracking
+            _totalBuildTime += data.BuildTimeMs;
+            _buildCount++;
+            AverageBuildTimeMs = _totalBuildTime / _buildCount;
+            
+            // Cache the result
+            AddToCache(coord, data);
+            
+            return data;
+        }
+        
+        /// <summary>
+        /// Builds a chunk asynchronously on a background thread.
+        /// </summary>
+        public Task<TerrainChunkData> BuildChunkAsync(ChunkCoord coord)
+        {
+            return Task.Run(() => BuildChunk(coord));
+        }
+        
+        /// <summary>
+        /// Executes the complete terrain generation pipeline.
+        /// </summary>
+        private void ExecuteGenerationPipeline(TerrainChunkData data)
+        {
+            // Phase 1: Macro landform
+            GenerateMacroLandform(data);
+            
+            // Phase 2: Flat area preservation
+            GenerateFlatAreas(data);
+            
+            // Phase 3: Ridge and hill shaping
+            GenerateRidgesAndHills(data);
+            
+            // Phase 4: Hydrology
+            GenerateHydrology(data);
+            
+            // Phase 5: Waterholes
+            CarveWaterholes(data);
+            
+            // Phase 6: Erosion
+            ApplyErosion(data);
+            
+            // Phase 7: Roads
+            StampRoads(data);
+            
+            // Phase 8: Biome and soil masks
+            GenerateBiomeMasks(data);
+            
+            // Phase 9: Compute slopes and final derivatives
+            ComputeSlopesAndDerivatives(data);
+        }
+        
+        #endregion
+        
+        #region Phase 1: Macro Landform
+        
+        /// <summary>
+        /// Generates the broad-scale terrain shape.
+        /// Creates rolling veld, escarpment-like variation, large plains, shallow basins.
+        /// </summary>
+        private void GenerateMacroLandform(TerrainChunkData data)
+        {
+            Vector3 origin = data.WorldOrigin;
+            int res = data.HeightmapResolution;
+            float cellSize = data.HeightmapCellSize;
+            
+            for (int z = 0; z < res; z++)
+            {
+                for (int x = 0; x < res; x++)
+                {
+                    float wx = origin.X + x * cellSize;
+                    float wz = origin.Z + z * cellSize;
+                    
+                    data.Heightmap[z, x] = SampleMacroElevation(wx, wz);
+                }
+            }
+        }
+        
+        private float SampleMacroElevation(float worldX, float worldZ)
+        {
+            // Primary macro noise
+            float macro = _macroNoise.GetNoise2D(worldX, worldZ);
+            
+            // Ridge influence - creates elongated high areas
+            float ridge = _ridgeNoise.GetNoise2D(worldX, worldZ);
+            ridge = Mathf.Pow(Mathf.Abs(ridge), 1.5f) * Mathf.Sign(ridge);
+            
+            // Valley influence - creates elongated low areas
+            float valley = _valleyNoise.GetNoise2D(worldX, worldZ);
+            valley = -Mathf.Pow(Mathf.Abs(valley), 1.3f) * Mathf.Sign(valley);
+            
+            // Combine with configurable weights
+            float combined = macro * (1f - Config.RidgeInfluence - Config.ValleyInfluence)
+                           + ridge * Config.RidgeInfluence
+                           + valley * Config.ValleyInfluence;
+            
+            // Remap to height range
+            float height = (combined + 1f) * 0.5f * Config.HeightScale;
+            
+            return Mathf.Max(0f, height);
+        }
+        
+        #endregion
+        
+        #region Phase 2: Flat Area Preservation
+        
+        /// <summary>
+        /// Creates controllable flat areas for building and grazing.
+        /// Uses a large-scale field to designate buildable flats vs rough terrain.
+        /// </summary>
+        private void GenerateFlatAreas(TerrainChunkData data)
+        {
+            Vector3 origin = data.WorldOrigin;
+            int res = data.HeightmapResolution;
+            float cellSize = data.HeightmapCellSize;
+            
+            for (int z = 0; z < res; z++)
+            {
+                for (int x = 0; x < res; x++)
+                {
+                    float wx = origin.X + x * cellSize;
+                    float wz = origin.Z + z * cellSize;
+                    
+                    // Sample flat area control field
+                    float flatControl = _flatAreaNoise.GetNoise2D(wx, wz);
+                    flatControl = (flatControl + 1f) * 0.5f; // Remap to 0-1
+                    
+                    // Determine if this is a flat area
+                    bool isFlat = flatControl > Config.FlatAreaThreshold;
+                    data.FlatAreaMask[z, x] = isFlat ? 1f : 0f;
+                    
+                    if (isFlat)
+                    {
+                        // Compute local average height for smooth flattening
+                        float targetHeight = GetLocalAverageHeight(data, x, z, 3);
+                        float blendStrength = Config.FlatAreaBlendStrength 
+                            * (flatControl - Config.FlatAreaThreshold) / (1f - Config.FlatAreaThreshold);
+                        
+                        // Blend towards flat
+                        data.Heightmap[z, x] = Mathf.Lerp(data.Heightmap[z, x], targetHeight, blendStrength);
+                    }
+                }
+            }
+        }
+        
+        private float GetLocalAverageHeight(TerrainChunkData data, int cx, int cz, int radius)
+        {
+            float sum = 0f;
+            int count = 0;
+            
+            for (int z = Mathf.Max(0, cz - radius); z <= Mathf.Min(data.HeightmapResolution - 1, cz + radius); z++)
+            {
+                for (int x = Mathf.Max(0, cx - radius); x <= Mathf.Min(data.HeightmapResolution - 1, cx + radius); x++)
+                {
+                    sum += data.Heightmap[z, x];
+                    count++;
+                }
+            }
+            
+            return count > 0 ? sum / count : data.Heightmap[cz, cx];
+        }
+        
+        #endregion
+        
+        #region Phase 3: Ridge and Hill Shaping
+        
+        /// <summary>
+        /// Adds believable uplifts, ridgelines, shoulders, and hill chains.
+        /// </summary>
+        private void GenerateRidgesAndHills(TerrainChunkData data)
+        {
+            Vector3 origin = data.WorldOrigin;
+            int res = data.HeightmapResolution;
+            float cellSize = data.HeightmapCellSize;
+            
+            for (int z = 0; z < res; z++)
+            {
+                for (int x = 0; x < res; x++)
+                {
+                    float wx = origin.X + x * cellSize;
+                    float wz = origin.Z + z * cellSize;
+                    
+                    // Skip flat areas
+                    if (data.FlatAreaMask[z, x] > 0.5f) continue;
+                    
+                    // Hill noise
+                    float hill = _hillNoise.GetNoise2D(wx, wz);
+                    hill = Mathf.Pow(Mathf.Abs(hill), 2f) * Mathf.Sign(hill);
+                    
+                    // Directional bias - creates aligned features
+                    float direction = _directionNoise.GetNoise2D(wx * 0.5f, wz * 0.5f);
+                    float angle = direction * Mathf.Pi;
+                    float alignedX = wx * Mathf.Cos(angle) - wz * Mathf.Sin(angle);
+                    float alignedFeature = Mathf.Sin(alignedX * Config.RidgeFrequency * Mathf.Pi * 2f);
+                    alignedFeature = Mathf.Pow(Mathf.Abs(alignedFeature), 3f) * Mathf.Sign(alignedFeature);
+                    
+                    // Combine
+                    float elevation = hill * Config.HillDensity + alignedFeature * Config.RidgeIntensity;
+                    elevation *= Config.HeightScale * 0.15f;
+                    
+                    data.Heightmap[z, x] += elevation;
+                }
+            }
+        }
+        
+        #endregion
+        
+        #region Phase 4: Hydrology
+        
+        /// <summary>
+        /// Computes flow direction, accumulation, drainage corridors, and moisture.
+        /// </summary>
+        private void GenerateHydrology(TerrainChunkData data)
+        {
+            Vector3 origin = data.WorldOrigin;
+            int res = data.HeightmapResolution;
+            float cellSize = data.HeightmapCellSize;
+            
+            // Compute flow direction for each cell
+            for (int z = 1; z < res - 1; z++)
+            {
+                for (int x = 1; x < res - 1; x++)
+                {
+                    float wx = origin.X + x * cellSize;
+                    float wz = origin.Z + z * cellSize;
+                    
+                    float h = data.Heightmap[z, x];
+                    
+                    // Find steepest descent
+                    float minSlope = float.MaxValue;
+                    Vector2 flowDir = Vector2.Zero;
+                    
+                    for (int dz = -1; dz <= 1; dz++)
+                    {
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            if (dx == 0 && dz == 0) continue;
+                            
+                            float nh = data.Heightmap[z + dz, x + dx];
+                            float slope = (h - nh) / (cellSize * Mathf.Sqrt(dx * dx + dz * dz));
+                            
+                            if (slope > 0 && slope < minSlope)
+                            {
+                                minSlope = slope;
+                                flowDir = new Vector2(dx, dz).Normalized();
+                            }
+                        }
+                    }
+                    
+                    data.FlowDirection[z, x] = flowDir;
+                }
+            }
+            
+            // Compute flow accumulation (simplified)
+            for (int z = 0; z < res; z++)
+            {
+                for (int x = 0; x < res; x++)
+                {
+                    float wx = origin.X + x * cellSize;
+                    float wz = origin.Z + z * cellSize;
+                    
+                    // Base flow from noise
+                    float flow = _flowNoise.GetNoise2D(wx, wz);
+                    flow = (flow + 1f) * 0.5f * Config.DrainageDensity;
+                    
+                    // Add contribution from being in a low area
+                    float localMin = GetLocalMinHeight(data, x, z, 2);
+                    float depression = Mathf.Max(0f, localMin - data.Heightmap[z, x]);
+                    flow += depression * 0.5f;
+                    
+                    data.FlowAccumulation[z, x] = flow;
+                    data.DrainageMask[z, x] = Mathf.Clamp(flow, 0f, 1f);
+                    
+                    // Carve drainage channels
+                    if (flow > 0.6f)
+                    {
+                        float carveDepth = (flow - 0.6f) * Config.RiverCarvingDepth * 3f;
+                        data.Heightmap[z, x] -= carveDepth;
+                    }
+                }
+            }
+            
+            // Compute moisture
+            for (int z = 0; z < res; z++)
+            {
+                for (int x = 0; x < res; x++)
+                {
+                    float wx = origin.X + x * cellSize;
+                    float wz = origin.Z + z * cellSize;
+                    
+                    float moisture = SampleMoisture(wx, wz);
+                    
+                    // Increase moisture near drainage
+                    moisture = Mathf.Lerp(moisture, 1f, data.DrainageMask[z, x] * 0.5f);
+                    
+                    data.WetnessMask[z, x] = moisture;
+                }
+            }
+        }
+        
+        private float SampleMoisture(float worldX, float worldZ)
+        {
+            float moisture = _moistureNoise.GetNoise2D(worldX, worldZ);
+            return (moisture + 1f) * 0.5f;
+        }
+        
+        private float GetLocalMinHeight(TerrainChunkData data, int cx, int cz, int radius)
+        {
+            float min = float.MaxValue;
+            
+            for (int z = Mathf.Max(0, cz - radius); z <= Mathf.Min(data.HeightmapResolution - 1, cz + radius); z++)
+            {
+                for (int x = Mathf.Max(0, cx - radius); x <= Mathf.Min(data.HeightmapResolution - 1, cx + radius); x++)
+                {
+                    if (data.Heightmap[z, x] < min) min = data.Heightmap[z, x];
+                }
+            }
+            
+            return min;
+        }
+        
+        #endregion
+        
+        #region Phase 5: Waterholes
+        
+        /// <summary>
+        /// Carves waterhole basins into the terrain.
+        /// </summary>
+        private void CarveWaterholes(TerrainChunkData data)
+        {
+            Vector3 origin = data.WorldOrigin;
+            float chunkSize = data.ChunkSize;
+            
+            // Find waterholes that affect this chunk
+            var relevantWaterholes = new List<WaterholeInfo>();
+            
+            foreach (var wh in _globalWaterholes)
+            {
+                float distX = Mathf.Abs(wh.WorldPosition.X - origin.X - chunkSize * 0.5f);
+                float distZ = Mathf.Abs(wh.WorldPosition.Z - origin.Z - chunkSize * 0.5f);
+                
+                if (distX < chunkSize * 0.5f + wh.Radius && distZ < chunkSize * 0.5f + wh.Radius)
+                {
+                    relevantWaterholes.Add(wh);
+                }
+            }
+            
+            data.Waterholes = relevantWaterholes.ToArray();
+            
+            // Carve each waterhole
+            int res = data.HeightmapResolution;
+            float cellSize = data.HeightmapCellSize;
+            
+            for (int z = 0; z < res; z++)
+            {
+                for (int x = 0; x < res; x++)
+                {
+                    float wx = origin.X + x * cellSize;
+                    float wz = origin.Z + z * cellSize;
+                    
+                    float totalDepression = 0f;
+                    float maxInfluence = 0f;
+                    
+                    foreach (var wh in relevantWaterholes)
+                    {
+                        float dx = wx - wh.WorldPosition.X;
+                        float dz = wz - wh.WorldPosition.Z;
+                        float dist = Mathf.Sqrt(dx * dx + dz * dz);
+                        
+                        if (dist < wh.Radius)
+                        {
+                            float t = dist / wh.Radius;
+                            // Basin profile: deeper in center, sloping up to edges
+                            float profile = Mathf.Pow(1f - t, wh.BasinSteepness * 2f + 1f);
+                            float depression = profile * wh.Depth;
+                            
+                            totalDepression = Mathf.Max(totalDepression, depression);
+                            maxInfluence = Mathf.Max(maxInfluence, profile);
+                        }
+                    }
+                    
+                    if (totalDepression > 0f)
+                    {
+                        data.Heightmap[z, x] -= totalDepression;
+                        data.WaterDepressionMask[z, x] = maxInfluence;
+                    }
+                }
+            }
+        }
+        
+        #endregion
+        
+        #region Phase 6: Erosion
+        
+        /// <summary>
+        /// Applies procedural erosion based on slope, flow, and rock hardness.
+        /// </summary>
+        private void ApplyErosion(TerrainChunkData data)
+        {
+            Vector3 origin = data.WorldOrigin;
+            int res = data.HeightmapResolution;
+            float cellSize = data.HeightmapCellSize;
+            
+            // First pass: compute preliminary slopes
+            ComputeSlopesAndDerivatives(data);
+            
+            // Second pass: apply erosion
+            for (int z = 1; z < res - 1; z++)
+            {
+                for (int x = 1; x < res - 1; x++)
+                {
+                    float wx = origin.X + x * cellSize;
+                    float wz = origin.Z + z * cellSize;
+                    
+                    float slope = data.Slopemap[z, x];
+                    float flow = data.FlowAccumulation[z, x];
+                    
+                    // Rock hardness proxy from noise
+                    float rockHardness = _rockNoise.GetNoise2D(wx, wz);
+                    rockHardness = (rockHardness + 1f) * 0.5f;
+                    
+                    // Erosion factors
+                    float slopeFactor = Mathf.Clamp(slope / 30f, 0f, 1f);
+                    float flowFactor = flow;
+                    float hardnessFactor = 1f - rockHardness * 0.7f;
+                    
+                    // Combined erosion
+                    float erosion = slopeFactor * flowFactor * hardnessFactor * Config.ErosionStrength;
+                    
+                    // Add gullies in high-flow, high-slope areas
+                    if (slope > 20f && flow > 0.5f)
+                    {
+                        float gullyNoise = _erosionNoise.GetNoise2D(wx, wz);
+                        if (gullyNoise > 0.3f)
+                        {
+                            erosion += Config.GullyFormation * (gullyNoise - 0.3f) * 2f;
+                        }
+                    }
+                    
+                    erosion = Mathf.Clamp(erosion, 0f, 1f);
+                    data.ErosionMask[z, x] = erosion;
+                    
+                    // Apply height reduction from erosion
+                    data.Heightmap[z, x] -= erosion * Config.HeightScale * 0.1f;
+                    
+                    // Expose rocks on steep, erosion-resistant areas
+                    if (slope > 25f && rockHardness > 0.6f)
+                    {
+                        data.RockMask[z, x] = Mathf.Lerp(data.RockMask[z, x], 
+                            rockHardness * Config.RockExposure, 0.5f);
+                    }
+                }
+            }
+        }
+        
+        #endregion
+        
+        #region Phase 7: Roads
+        
+        /// <summary>
+        /// Stamps road masks into the terrain.
+        /// </summary>
+        private void StampRoads(TerrainChunkData data)
+        {
+            Vector3 origin = data.WorldOrigin;
+            int res = data.HeightmapResolution;
+            float cellSize = data.HeightmapCellSize;
+            
+            // Find road segments affecting this chunk
+            for (int i = 0; i < _globalRoadNodes.Count - 1; i++)
+            {
+                Vector3 nodeA = _globalRoadNodes[i];
+                Vector3 nodeB = _globalRoadNodes[i + 1];
+                
+                // Simple distance check - stamp road corridor
+                StampRoadCorridor(data, nodeA, nodeB);
+            }
+        }
+        
+        private void StampRoadCorridor(TerrainChunkData data, Vector3 nodeA, Vector3 nodeB)
+        {
+            Vector3 origin = data.WorldOrigin;
+            int res = data.HeightmapResolution;
+            float cellSize = data.HeightmapCellSize;
+            float roadWidth = Config.RoadWidth;
+            
+            // Check if road segment is near this chunk
+            float chunkCenterX = origin.X + data.ChunkSize * 0.5f;
+            float chunkCenterZ = origin.Z + data.ChunkSize * 0.5f;
+            
+            // Simple bounding check
+            float minX = Mathf.Min(nodeA.X, nodeB.X) - roadWidth;
+            float maxX = Mathf.Max(nodeA.X, nodeB.X) + roadWidth;
+            float minZ = Mathf.Min(nodeA.Z, nodeB.Z) - roadWidth;
+            float maxZ = Mathf.Max(nodeA.Z, nodeB.Z) + roadWidth;
+            
+            if (chunkCenterX + data.ChunkSize < minX || chunkCenterX - data.ChunkSize > maxX ||
+                chunkCenterZ + data.ChunkSize < minZ || chunkCenterZ - data.ChunkSize > maxZ)
+            {
+                return; // Road doesn't affect this chunk
+            }
+            
+            // Stamp road influence
+            for (int z = 0; z < res; z++)
+            {
+                for (int x = 0; x < res; x++)
+                {
+                    float wx = origin.X + x * cellSize;
+                    float wz = origin.Z + z * cellSize;
+                    
+                    // Distance to road line segment
+                    float dist = DistanceToLineSegment(wx, wz, nodeA.X, nodeA.Z, nodeB.X, nodeB.Z);
+                    
+                    if (dist < roadWidth)
+                    {
+                        float influence = 1f - (dist / roadWidth);
+                        influence = Mathf.Pow(influence, 2f); // Smooth falloff
+                        
+                        // Blend with existing road mask
+                        data.RoadMask[z, x] = Mathf.Max(data.RoadMask[z, x], influence);
+                        
+                        // Flatten terrain for road
+                        float targetHeight = GetHeightAlongRoad(wx, wz, nodeA, nodeB);
+                        data.Heightmap[z, x] = Mathf.Lerp(data.Heightmap[z, x], targetHeight, 
+                            influence * Config.RoadFlattening);
+                        
+                        // Add slight depression for wheel tracks
+                        data.Heightmap[z, x] -= influence * Config.RoadDepressionDepth * Config.HeightScale * 0.1f;
+                    }
+                }
+            }
+        }
+        
+        private float DistanceToLineSegment(float px, float py, float x1, float y1, float x2, float y2)
+        {
+            float dx = x2 - x1;
+            float dy = y2 - y1;
+            float lenSq = dx * dx + dy * dy;
+            
+            if (lenSq == 0) return Mathf.Sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+            
+            float t = Mathf.Clamp(((px - x1) * dx + (py - y1) * dy) / lenSq, 0f, 1f);
+            float projX = x1 + t * dx;
+            float projY = y1 + t * dy;
+            
+            return Mathf.Sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY));
+        }
+        
+        private float GetHeightAlongRoad(float wx, float wz, Vector3 nodeA, Vector3 nodeB)
+        {
+            // Interpolate height between nodes
+            float dx = nodeB.X - nodeA.X;
+            float dz = nodeB.Z - nodeA.Z;
+            float lenSq = dx * dx + dz * dz;
+            
+            if (lenSq == 0) return GetTerrainHeight(nodeA.X, nodeA.Z);
+            
+            float t = Mathf.Clamp(((wx - nodeA.X) * dx + (wz - nodeA.Z) * dz) / lenSq, 0f, 1f);
+            
+            float hA = GetTerrainHeight(nodeA.X, nodeA.Z);
+            float hB = GetTerrainHeight(nodeB.X, nodeB.Z);
+            
+            return Mathf.Lerp(hA, hB, t);
+        }
+        
+        #endregion
+        
+        #region Phase 8: Biome Masks
+        
+        /// <summary>
+        /// Generates biome and soil type masks.
+        /// </summary>
+        private void GenerateBiomeMasks(TerrainChunkData data)
+        {
+            Vector3 origin = data.WorldOrigin;
+            int res = data.HeightmapResolution;
+            float cellSize = data.HeightmapCellSize;
+            
+            for (int z = 0; z < res; z++)
+            {
+                for (int x = 0; x < res; x++)
+                {
+                    float wx = origin.X + x * cellSize;
+                    float wz = origin.Z + z * cellSize;
+                    
+                    float height = data.Heightmap[z, x];
+                    float slope = data.Slopemap[z, x];
+                    float moisture = data.WetnessMask[z, x];
+                    float erosion = data.ErosionMask[z, x];
+                    
+                    // Biome selection based on conditions
+                    float biome = _biomeNoise.GetNoise2D(wx, wz);
+                    biome = (biome + 1f) * 0.5f;
+                    
+                    // Adjust biome by conditions
+                    if (moisture > 0.6f) biome = Mathf.Lerp(biome, 0.8f, 0.5f); // Wet areas
+                    if (slope > 30f) biome = Mathf.Lerp(biome, 0.2f, 0.5f); // Steep/rocky
+                    if (erosion > 0.5f) biome = Mathf.Lerp(biome, 0.1f, 0.3f); // Eroded
+                    
+                    data.SoilTypeMask[z, x] = biome;
+                    
+                    // Enhance rock mask on steep slopes
+                    if (slope > 35f)
+                    {
+                        data.RockMask[z, x] = Mathf.Max(data.RockMask[z, x], 
+                            Mathf.Clamp((slope - 35f) / 20f, 0f, 1f));
+                    }
+                }
+            }
+        }
+        
+        #endregion
+        
+        #region Phase 9: Compute Slopes and Derivatives
+        
+        /// <summary>
+        /// Computes slope map and other derived values from the final heightmap.
+        /// </summary>
+        private void ComputeSlopesAndDerivatives(TerrainChunkData data)
+        {
+            int res = data.HeightmapResolution;
+            float cellSize = data.HeightmapCellSize;
+            
+            for (int z = 0; z < res; z++)
+            {
+                for (int x = 0; x < res; x++)
+                {
+                    // Sample neighbors
+                    int xL = Mathf.Max(0, x - 1);
+                    int xR = Mathf.Min(res - 1, x + 1);
+                    int zD = Mathf.Max(0, z - 1);
+                    int zU = Mathf.Min(res - 1, z + 1);
+                    
+                    float h = data.Heightmap[z, x];
+                    float hL = data.Heightmap[z, xL];
+                    float hR = data.Heightmap[z, xR];
+                    float hD = data.Heightmap[zD, x];
+                    float hU = data.Heightmap[zU, x];
+                    
+                    // Compute gradients
+                    float dX = (hR - hL) / ((xR - xL) * cellSize);
+                    float dZ = (hU - hD) / ((zU - zD) * cellSize);
+                    
+                    // Slope in degrees
+                    float slopeRad = Mathf.Atan(Mathf.Sqrt(dX * dX + dZ * dZ));
+                    data.Slopemap[z, x] = slopeRad * 57.29578f; // Convert to degrees
+                }
+            }
+        }
+        
+        #endregion
+        
+        #region Mesh Building
+        
+        /// <summary>
+        /// Builds the terrain mesh from the heightmap.
+        /// </summary>
+        private void BuildTerrainMesh(TerrainChunkData data)
+        {
+            int res = data.HeightmapResolution;
+            float chunkSize = data.ChunkSize;
+            float vertexSpacing = chunkSize / (res - 1);
+            float halfSize = chunkSize * 0.5f;
+            
+            var surfaceTool = new SurfaceTool();
+            surfaceTool.Begin(Mesh.PrimitiveType.Triangles);
+            
+            // Generate flat-shaded quads
+            for (int z = 0; z < res - 1; z++)
+            {
+                for (int x = 0; x < res - 1; x++)
+                {
+                    // Local vertices
+                    float lx0 = x * vertexSpacing - halfSize;
+                    float lx1 = (x + 1) * vertexSpacing - halfSize;
+                    float lz0 = z * vertexSpacing - halfSize;
+                    float lz1 = (z + 1) * vertexSpacing - halfSize;
+                    
+                    // Heights
+                    float h00 = data.Heightmap[z, x];
+                    float h10 = data.Heightmap[z, x + 1];
+                    float h11 = data.Heightmap[z + 1, x + 1];
+                    float h01 = data.Heightmap[z + 1, x];
+                    
+                    Vector3 v0 = new Vector3(lx0, h00, lz0);
+                    Vector3 v1 = new Vector3(lx1, h10, lz0);
+                    Vector3 v2 = new Vector3(lx1, h11, lz1);
+                    Vector3 v3 = new Vector3(lx0, h01, lz1);
+                    
+                    // Calculate flat normals
+                    Vector3 normal1 = CalculateFlatNormal(v0, v1, v2);
+                    Vector3 normal2 = CalculateFlatNormal(v0, v2, v3);
+                    
+                    // Get vertex colors with all mask data
+                    Color c0 = GetTerrainVertexColor(data, x, z);
+                    Color c1 = GetTerrainVertexColor(data, x + 1, z);
+                    Color c2 = GetTerrainVertexColor(data, x + 1, z + 1);
+                    Color c3 = GetTerrainVertexColor(data, x, z + 1);
+                    
+                    // Add triangles
+                    AddFlatTriangle(surfaceTool, v0, v1, v2, normal1, c0, c1, c2);
+                    AddFlatTriangle(surfaceTool, v0, v2, v3, normal2, c0, c2, c3);
+                }
+            }
+            
+            data.TerrainMesh = surfaceTool.Commit();
+        }
+        
+        private Vector3 CalculateFlatNormal(Vector3 v0, Vector3 v1, Vector3 v2)
+        {
+            Vector3 edge1 = v1 - v0;
+            Vector3 edge2 = v2 - v0;
+            return edge1.Cross(edge2).Normalized();
+        }
+        
+        private void AddFlatTriangle(SurfaceTool st, Vector3 v0, Vector3 v1, Vector3 v2,
+                                     Vector3 normal, Color c0, Color c1, Color c2)
+        {
+            st.SetNormal(normal);
+            st.SetColor(c0);
+            st.SetUV(new Vector2(v0.X / 256f, v0.Z / 256f));
+            st.AddVertex(v0);
+            
+            st.SetNormal(normal);
+            st.SetColor(c1);
+            st.SetUV(new Vector2(v1.X / 256f, v1.Z / 256f));
+            st.AddVertex(v1);
+            
+            st.SetNormal(normal);
+            st.SetColor(c2);
+            st.SetUV(new Vector2(v2.X / 256f, v2.Z / 256f));
+            st.AddVertex(v2);
+        }
+        
+        /// <summary>
+        /// Gets the vertex color encoding terrain information for the shader.
+        /// </summary>
+        private Color GetTerrainVertexColor(TerrainChunkData data, int x, int z)
+        {
+            float height = data.Heightmap[z, x];
+            float moisture = data.WetnessMask[z, x];
+            float rock = data.RockMask[z, x];
+            float road = data.RoadMask[z, x];
+            float soil = data.SoilTypeMask[z, x];
+            float drainage = data.DrainageMask[z, x];
+            
+            // South African bushveld color palette
+            Color redSoil = new Color(0.65f, 0.35f, 0.25f);
+            Color dryGrass = new Color(0.76f, 0.70f, 0.50f);
+            Color greenGrass = new Color(0.55f, 0.65f, 0.40f);
+            Color rockGray = new Color(0.50f, 0.45f, 0.40f);
+            Color roadDust = new Color(0.75f, 0.68f, 0.55f);
+            
+            // Height normalization
+            float heightNorm = Mathf.Clamp(height / Config.HeightScale, 0f, 1f);
+            
+            // Base color selection
+            Color baseColor;
+            if (heightNorm < 0.25f)
+            {
+                // Lower areas - soil dominant
+                baseColor = redSoil.Lerp(dryGrass, moisture * 0.5f);
+            }
+            else if (heightNorm < 0.6f)
+            {
+                // Mid elevation - grassland
+                baseColor = moisture > 0.5f ? greenGrass : dryGrass;
+            }
+            else
+            {
+                // Higher elevation - rockier
+                baseColor = rockGray.Lerp(dryGrass, moisture * 0.4f);
+            }
+            
+            // Blend in rock
+            baseColor = baseColor.Lerp(rockGray, rock * 0.7f);
+            
+            // Blend in road
+            baseColor = baseColor.Lerp(roadDust, road * 0.8f);
+            
+            // Add variation
+            uint hash = (uint)((x + z * data.HeightmapResolution) * 73856093);
+            float variation = ((hash % 100) / 100f - 0.5f) * 0.08f;
+            baseColor.R = Mathf.Clamp(baseColor.R + variation, 0f, 1f);
+            baseColor.G = Mathf.Clamp(baseColor.G + variation, 0f, 1f);
+            baseColor.B = Mathf.Clamp(baseColor.B + variation, 0f, 1f);
+            
+            // Encode additional data in vertex color channels for shader
+            // R, G, B = base color
+            // A = can be used for additional data
+            
+            return baseColor;
+        }
+        
+        #endregion
+        
+        #region Public Query API
+        
+        /// <summary>
+        /// Gets terrain height at world position.
+        /// </summary>
+        public float GetTerrainHeight(float worldX, float worldZ)
+        {
+            // Find which chunk this position belongs to
+            float chunkSize = Config?.ChunkSize ?? 256f;
+            int chunkX = Mathf.FloorToInt(worldX / chunkSize);
+            int chunkZ = Mathf.FloorToInt(worldZ / chunkSize);
+            var coord = new ChunkCoord(chunkX, chunkZ);
+            
+            // Check cache
+            lock (_cacheLock)
+            {
+                if (_chunkCache.TryGetValue(coord, out var data))
+                {
+                    return data.GetHeightAtWorld(new Vector3(worldX, 0f, worldZ));
+                }
+            }
+            
+            // Fall back to sampling macro elevation
+            return SampleMacroElevation(worldX, worldZ);
+        }
+        
+        /// <summary>
+        /// Gets a complete terrain sample at world position.
+        /// </summary>
+        public TerrainSample GetTerrainSample(float worldX, float worldZ)
+        {
+            float chunkSize = Config?.ChunkSize ?? 256f;
+            int chunkX = Mathf.FloorToInt(worldX / chunkSize);
+            int chunkZ = Mathf.FloorToInt(worldZ / chunkSize);
+            var coord = new ChunkCoord(chunkX, chunkZ);
+            
+            lock (_cacheLock)
+            {
+                if (_chunkCache.TryGetValue(coord, out var data))
+                {
+                    return data.GetSampleAtWorld(new Vector3(worldX, 0f, worldZ));
+                }
+            }
+            
+            // Return basic sample from macro generation
+            return new TerrainSample
+            {
+                Height = SampleMacroElevation(worldX, worldZ),
+                Slope = 0f,
+                Wetness = SampleMoisture(worldX, worldZ),
+                Rockiness = 0f,
+                RoadInfluence = 0f
+            };
+        }
+        
+        /// <summary>
+        /// Gets terrain normal at world position.
+        /// </summary>
+        public Vector3 GetTerrainNormal(float worldX, float worldZ, float sampleDistance = 2f)
+        {
+            float hC = GetTerrainHeight(worldX, worldZ);
+            float hR = GetTerrainHeight(worldX + sampleDistance, worldZ);
+            float hU = GetTerrainHeight(worldX, worldZ + sampleDistance);
+            
+            Vector3 tangentX = new Vector3(sampleDistance, hR - hC, 0f);
+            Vector3 tangentZ = new Vector3(0f, hU - hC, sampleDistance);
+            
+            return tangentX.Cross(tangentZ).Normalized();
+        }
+        
+        /// <summary>
+        /// Gets all waterholes within range of a position.
+        /// </summary>
+        public WaterholeInfo[] GetWaterholesInRange(Vector3 position, float maxDistance)
+        {
+            var result = new System.Collections.Generic.List<WaterholeInfo>();
+            
+            foreach (var wh in _globalWaterholes)
+            {
+                float dist = wh.WorldPosition.DistanceTo(position);
+                if (dist < maxDistance + wh.Radius)
+                {
+                    result.Add(wh);
+                }
+            }
+            
+            return result.ToArray();
+        }
+        
+        /// <summary>
+        /// Gets the nearest waterhole to a position.
+        /// </summary>
+        public WaterholeInfo GetNearestWaterhole(Vector3 position, out float distance)
+        {
+            WaterholeInfo nearest = default;
+            float minDist = float.MaxValue;
+            
+            foreach (var wh in _globalWaterholes)
+            {
+                float dist = wh.WorldPosition.DistanceTo(position);
+                if (dist < minDist)
+                {
+                    minDist = dist;
+                    nearest = wh;
+                }
+            }
+            
+            distance = minDist;
+            return nearest;
+        }
+        
+        /// <summary>
+        /// Returns true if the position is suitable for building.
+        /// </summary>
+        public bool IsBuildable(float worldX, float worldZ, float maxSlope = 15f)
+        {
+            var sample = GetTerrainSample(worldX, worldZ);
+            return sample.IsBuildable(maxSlope);
+        }
+        
+        /// <summary>
+        /// Returns true if the position is walkable.
+        /// </summary>
+        public bool IsWalkable(float worldX, float worldZ, float maxSlope = 45f)
+        {
+            var sample = GetTerrainSample(worldX, worldZ);
+            return sample.IsWalkable(maxSlope);
+        }
+        
+        #endregion
+        
+        #region Seasonal Updates
+        
+        /// <summary>
+        /// Updates global seasonal state. Called by TimeSystem.
+        /// </summary>
+        public void UpdateSeasonalState(float wetness, float dryness, float greenBias)
+        {
+            GlobalWetness = wetness;
+            GlobalDryness = dryness;
+            SeasonalGreenBias = greenBias;
+            
+            // Update all cached chunks
+            lock (_cacheLock)
+            {
+                foreach (var data in _chunkCache.Values)
+                {
+                    data.UpdateSeasonalState(wetness, dryness);
+                }
+            }
+        }
+        
+        #endregion
+        
+        #region Cache Management
+        
+        private void AddToCache(ChunkCoord coord, TerrainChunkData data)
+        {
+            lock (_cacheLock)
+            {
+                // Remove oldest if cache is full
+                while (_chunkCache.Count >= (Config?.HeightmapCacheSize ?? 64))
+                {
+                    if (_cacheAccessOrder.Count > 0)
+                    {
+                        var oldest = _cacheAccessOrder.Dequeue();
+                        _chunkCache.Remove(oldest);
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                
+                _chunkCache[coord] = data;
+                _cacheAccessOrder.Enqueue(coord);
+            }
+        }
+        
+        /// <summary>
+        /// Clears the chunk cache.
+        /// </summary>
+        public void ClearCache()
+        {
+            lock (_cacheLock)
+            {
+                _chunkCache.Clear();
+                _cacheAccessOrder.Clear();
+            }
+            
+            CacheHits = 0;
+            CacheMisses = 0;
+        }
+        
+        /// <summary>
+        /// Gets cache statistics.
+        /// </summary>
+        public string GetCacheStats()
+        {
+            lock (_cacheLock)
+            {
+                int total = CacheHits + CacheMisses;
+                float hitRate = total > 0 ? (float)CacheHits / total * 100f : 0f;
+                return $"Cache: {_chunkCache.Count} chunks, {hitRate:F1}% hit rate";
+            }
+        }
+        
+        #endregion
+        
+        #region Debug
+        
+        /// <summary>
+        /// Gets debug information about the terrain system.
+        /// </summary>
+        public string GetDebugInfo()
+        {
+            return $"[TerrainSystem]\n" +
+                   $"  Seed: {Config?.WorldSeed ?? 0}\n" +
+                   $"  Waterholes: {_globalWaterholes?.Count ?? 0}\n" +
+                   $"  Road nodes: {_globalRoadNodes?.Count ?? 0}\n" +
+                   $"  {GetCacheStats()}\n" +
+                   $"  Avg build time: {AverageBuildTimeMs:F1}ms\n" +
+                   $"  Global wetness: {GlobalWetness:F2}";
+        }
+        
+        #endregion
+        
+        public override void _ExitTree()
+        {
+            ClearCache();
+            
+            if (_instance == this)
+            {
+                _instance = null;
+            }
+        }
+    }
+}

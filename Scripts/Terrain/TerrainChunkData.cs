@@ -1,0 +1,286 @@
+using Godot;
+using System;
+
+namespace WorldStreaming.Terrain
+{
+    /// <summary>
+    /// Complete terrain data payload for a single chunk.
+    /// Contains geometry, masks, and gameplay-relevant terrain information.
+    /// This is the primary data structure passed from TerrainSystem to renderers.
+    /// </summary>
+    public class TerrainChunkData
+    {
+        // ── Chunk Identification ───────────────────────────────────────────
+        public ChunkCoord Coordinate { get; set; }
+        public float ChunkSize { get; set; }
+        public Vector3 WorldOrigin { get; set; }
+        
+        // ── Geometry ───────────────────────────────────────────────────────
+        public ArrayMesh TerrainMesh { get; set; }
+        public Vector3[] Vertices { get; set; }
+        public Vector3[] Normals { get; set; }
+        public Color[] VertexColors { get; set; }
+        public Vector2[] UVs { get; set; }
+        
+        // ── Heightmap Grid (for fast queries) ──────────────────────────────
+        public float[,] Heightmap { get; set; }
+        public float[,] Slopemap { get; set; }
+        public int HeightmapResolution { get; set; }
+        public float HeightmapCellSize { get; set; }
+        
+        // ── Terrain Masks (0-1 values) ─────────────────────────────────────
+        public float[,] RoadMask { get; set; }
+        public float[,] WetnessMask { get; set; }
+        public float[,] RockMask { get; set; }
+        public float[,] SoilTypeMask { get; set; }
+        public float[,] WaterDepressionMask { get; set; }
+        public float[,] DrainageMask { get; set; }
+        public float[,] FlatAreaMask { get; set; }
+        public float[,] ErosionMask { get; set; }
+        
+        // ── Material Blend Weights ─────────────────────────────────────────
+        public Color[] BlendWeights { get; set; }
+        // RGBA: R=dry soil, G=grass, B=rock, A=road
+        
+        // ── Hydrology Data ─────────────────────────────────────────────────
+        public float[,] FlowAccumulation { get; set; }
+        public Vector2[,] FlowDirection { get; set; }
+        public float[] WaterholeDistances { get; set; }
+        
+        // ── Feature Points ─────────────────────────────────────────────────
+        public Vector3[] RidgePoints { get; set; }
+        public Vector3[] ValleyPoints { get; set; }
+        public WaterholeInfo[] Waterholes { get; set; }
+        
+        // ── Metadata ───────────────────────────────────────────────────────
+        public float MinHeight { get; set; }
+        public float MaxHeight { get; set; }
+        public float AverageSlope { get; set; }
+        public float BuildTimeMs { get; set; }
+        public int GenerationVersion { get; set; }
+        
+        // ── Seasonal State (mutable) ───────────────────────────────────────
+        public float CurrentWetness { get; set; }
+        public float CurrentDryness { get; set; }
+        
+        /// <summary>
+        /// Initializes a new chunk data structure with the specified resolution.
+        /// </summary>
+        public static TerrainChunkData Create(ChunkCoord coord, float chunkSize, int resolution)
+        {
+            var data = new TerrainChunkData
+            {
+                Coordinate = coord,
+                ChunkSize = chunkSize,
+                WorldOrigin = coord.GetWorldOrigin(chunkSize),
+                HeightmapResolution = resolution,
+                HeightmapCellSize = chunkSize / (resolution - 1),
+                GenerationVersion = 1
+            };
+            
+            // Initialize arrays
+            data.Heightmap = new float[resolution, resolution];
+            data.Slopemap = new float[resolution, resolution];
+            data.RoadMask = new float[resolution, resolution];
+            data.WetnessMask = new float[resolution, resolution];
+            data.RockMask = new float[resolution, resolution];
+            data.SoilTypeMask = new float[resolution, resolution];
+            data.WaterDepressionMask = new float[resolution, resolution];
+            data.DrainageMask = new float[resolution, resolution];
+            data.FlatAreaMask = new float[resolution, resolution];
+            data.ErosionMask = new float[resolution, resolution];
+            data.FlowAccumulation = new float[resolution, resolution];
+            data.FlowDirection = new Vector2[resolution, resolution];
+            
+            return data;
+        }
+        
+        /// <summary>
+        /// Gets height at a local grid position.
+        /// </summary>
+        public float GetHeightAt(int x, int z)
+        {
+            if (x < 0) x = 0;
+            if (z < 0) z = 0;
+            if (x >= HeightmapResolution) x = HeightmapResolution - 1;
+            if (z >= HeightmapResolution) z = HeightmapResolution - 1;
+            return Heightmap[z, x];
+        }
+        
+        /// <summary>
+        /// Gets height at world position using bilinear interpolation.
+        /// </summary>
+        public float GetHeightAtWorld(Vector3 worldPos)
+        {
+            float localX = worldPos.X - WorldOrigin.X;
+            float localZ = worldPos.Z - WorldOrigin.Z;
+            
+            float gx = localX / HeightmapCellSize;
+            float gz = localZ / HeightmapCellSize;
+            
+            int x0 = Mathf.FloorToInt(gx);
+            int z0 = Mathf.FloorToInt(gz);
+            int x1 = Mathf.Min(x0 + 1, HeightmapResolution - 1);
+            int z1 = Mathf.Min(z0 + 1, HeightmapResolution - 1);
+            
+            float fx = gx - x0;
+            float fz = gz - z0;
+            
+            float h00 = GetHeightAt(x0, z0);
+            float h10 = GetHeightAt(x1, z0);
+            float h01 = GetHeightAt(x0, z1);
+            float h11 = GetHeightAt(x1, z1);
+            
+            float hz0 = h00 + (h10 - h00) * fx;
+            float hz1 = h01 + (h11 - h01) * fx;
+            
+            return hz0 + (hz1 - hz0) * fz;
+        }
+        
+        /// <summary>
+        /// Gets slope at world position.
+        /// </summary>
+        public float GetSlopeAtWorld(Vector3 worldPos)
+        {
+            float localX = worldPos.X - WorldOrigin.X;
+            float localZ = worldPos.Z - WorldOrigin.Z;
+            
+            int x = Mathf.Clamp(Mathf.FloorToInt(localX / HeightmapCellSize), 0, HeightmapResolution - 1);
+            int z = Mathf.Clamp(Mathf.FloorToInt(localZ / HeightmapCellSize), 0, HeightmapResolution - 1);
+            
+            return Slopemap[z, x];
+        }
+        
+        /// <summary>
+        /// Gets the combined terrain sample at world position.
+        /// </summary>
+        public TerrainSample GetSampleAtWorld(Vector3 worldPos)
+        {
+            float localX = worldPos.X - WorldOrigin.X;
+            float localZ = worldPos.Z - WorldOrigin.Z;
+            
+            float gx = localX / HeightmapCellSize;
+            float gz = localZ / HeightmapCellSize;
+            
+            int x = Mathf.Clamp(Mathf.FloorToInt(gx), 0, HeightmapResolution - 1);
+            int z = Mathf.Clamp(Mathf.FloorToInt(gz), 0, HeightmapResolution - 1);
+            
+            return new TerrainSample
+            {
+                Height = Heightmap[z, x],
+                Slope = Slopemap[z, x],
+                RoadInfluence = RoadMask[z, x],
+                Wetness = WetnessMask[z, x],
+                Rockiness = RockMask[z, x],
+                SoilType = SoilTypeMask[z, x],
+                WaterDepression = WaterDepressionMask[z, x],
+                Drainage = DrainageMask[z, x],
+                IsFlatArea = FlatAreaMask[z, x] > 0.5f,
+                Erosion = ErosionMask[z, x]
+            };
+        }
+        
+        /// <summary>
+        /// Updates seasonal state for this chunk.
+        /// </summary>
+        public void UpdateSeasonalState(float wetness, float dryness)
+        {
+            CurrentWetness = wetness;
+            CurrentDryness = dryness;
+        }
+        
+        /// <summary>
+        /// Computes statistics after generation.
+        /// </summary>
+        public void ComputeStatistics()
+        {
+            float minH = float.MaxValue;
+            float maxH = float.MinValue;
+            float totalSlope = 0f;
+            int count = 0;
+            
+            for (int z = 0; z < HeightmapResolution; z++)
+            {
+                for (int x = 0; x < HeightmapResolution; x++)
+                {
+                    float h = Heightmap[z, x];
+                    if (h < minH) minH = h;
+                    if (h > maxH) maxH = h;
+                    totalSlope += Slopemap[z, x];
+                    count++;
+                }
+            }
+            
+            MinHeight = minH;
+            MaxHeight = maxH;
+            AverageSlope = totalSlope / count;
+        }
+    }
+    
+    /// <summary>
+    /// Complete terrain sample at a single point.
+    /// </summary>
+    public struct TerrainSample
+    {
+        public float Height;
+        public float Slope;
+        public float RoadInfluence;
+        public float Wetness;
+        public float Rockiness;
+        public float SoilType;
+        public float WaterDepression;
+        public float Drainage;
+        public bool IsFlatArea;
+        public float Erosion;
+        
+        /// <summary>
+        /// Returns true if this position is suitable for building.
+        /// </summary>
+        public bool IsBuildable(float maxSlope = 15f)
+        {
+            return Slope <= maxSlope && RoadInfluence < 0.3f && WaterDepression < 0.2f;
+        }
+        
+        /// <summary>
+        /// Returns true if this position is walkable.
+        /// </summary>
+        public bool IsWalkable(float maxSlope = 45f)
+        {
+            return Slope <= maxSlope;
+        }
+        
+        /// <summary>
+        /// Returns a movement cost factor (1.0 = normal, higher = harder).
+        /// </summary>
+        public float GetMovementCost()
+        {
+            float cost = 1.0f;
+            cost += Slope / 45f * 0.5f; // Slope penalty
+            cost += Rockiness * 0.3f;   // Rock penalty
+            cost += Wetness * 0.2f;     // Wet ground penalty
+            return cost;
+        }
+    }
+    
+    /// <summary>
+    /// Information about a waterhole in the terrain.
+    /// </summary>
+    public struct WaterholeInfo
+    {
+        public Vector3 WorldPosition;
+        public float Radius;
+        public float Depth;
+        public float BasinSteepness;
+        public int Id;
+        public bool IsActive;
+        
+        /// <summary>
+        /// Gets the water level at this waterhole based on season.
+        /// </summary>
+        public float GetWaterLevel(float seasonalWetness)
+        {
+            if (!IsActive) return 0f;
+            return Depth * (0.3f + seasonalWetness * 0.7f);
+        }
+    }
+}

@@ -85,7 +85,7 @@ namespace Basterboer.Buildings
 		public BuildingData PlaceBuilding(BuildingType type, Vector3 position, float rotation)
 		{
 			// Snap position to terrain height
-			float terrainHeight = TerrainGenerator.GetTerrainHeight(position.X, position.Z);
+			float terrainHeight = LandManagementSim.Terrain.TerrainQuery.GetHeight(position.X, position.Z);
 			position.Y = terrainHeight;
 
 			ChunkCoord chunk = ChunkCoord.FromWorldPosition(position);
@@ -185,7 +185,7 @@ namespace Basterboer.Buildings
 		/// </summary>
 		public bool CanPlaceBuilding(BuildingType type, Vector3 position, float rotation)
 		{
-			float terrainHeight = TerrainGenerator.GetTerrainHeight(position.X, position.Z);
+			float terrainHeight = LandManagementSim.Terrain.TerrainQuery.GetHeight(position.X, position.Z);
 			position.Y = terrainHeight;
 			ChunkCoord chunk = ChunkCoord.FromWorldPosition(position);
 			
@@ -198,7 +198,7 @@ namespace Basterboer.Buildings
 		private bool IsPlacementValid(BuildingType type, Vector3 position, float rotation, ChunkCoord chunk)
 		{
 			// Terrain height validation
-			float terrainHeight = TerrainGenerator.GetTerrainHeight(position.X, position.Z);
+			float terrainHeight = LandManagementSim.Terrain.TerrainQuery.GetHeight(position.X, position.Z);
 			if (float.IsNaN(terrainHeight) || Mathf.Abs(position.Y - terrainHeight) > 0.5f)
 			{
 				return false;
@@ -234,12 +234,12 @@ namespace Basterboer.Buildings
 			float checkRadius = Mathf.Max(dimensions.X, dimensions.Y) / 2.0f;
 
 			// Sample terrain at multiple points
-			float centerHeight = TerrainGenerator.GetTerrainHeight(position.X, position.Z);
+			float centerHeight = LandManagementSim.Terrain.TerrainQuery.GetHeight(position.X, position.Z);
 			float[] sampleHeights = {
-				TerrainGenerator.GetTerrainHeight(position.X + checkRadius, position.Z),
-				TerrainGenerator.GetTerrainHeight(position.X - checkRadius, position.Z),
-				TerrainGenerator.GetTerrainHeight(position.X, position.Z + checkRadius),
-				TerrainGenerator.GetTerrainHeight(position.X, position.Z - checkRadius)
+				LandManagementSim.Terrain.TerrainQuery.GetHeight(position.X + checkRadius, position.Z),
+				LandManagementSim.Terrain.TerrainQuery.GetHeight(position.X - checkRadius, position.Z),
+				LandManagementSim.Terrain.TerrainQuery.GetHeight(position.X, position.Z + checkRadius),
+				LandManagementSim.Terrain.TerrainQuery.GetHeight(position.X, position.Z - checkRadius)
 			};
 
 			foreach (float height in sampleHeights)

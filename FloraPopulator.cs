@@ -69,13 +69,13 @@ namespace WorldStreaming
 					float localZ = entry.WorldPosition2D.Y - chunkOrigin.Z;
 					
 					// Get terrain height at this position
-					float terrainHeight = TerrainGenerator.GetTerrainHeight(
+					float terrainHeight = LandManagementSim.Terrain.TerrainQuery.GetHeight(
 						entry.WorldPosition2D.X, entry.WorldPosition2D.Y);
 					
 					Vector3 localPosition = new Vector3(localX, terrainHeight, localZ);
 
 					// Align to terrain normal for realistic placement
-					Vector3 terrainNormal = TerrainGenerator.GetTerrainNormal(
+					Vector3 terrainNormal = LandManagementSim.Terrain.TerrainQuery.GetNormal(
 						entry.WorldPosition2D.X, entry.WorldPosition2D.Y);
 					
 					// Build transform
