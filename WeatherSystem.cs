@@ -208,4 +208,40 @@ public partial class WeatherSystem : Node3D
 		GameState.Instance.UpdateWeather(weather);
 		UpdateWeatherEffects();
 	}
+	
+	/// <summary>
+	/// Returns an estimated monthly rainfall value (0.0 - 1.0 normalized).
+	/// Used by FloraSystem for ecology moisture updates.
+	/// Based on South African Bushveld seasonal patterns.
+	/// </summary>
+	public float GetMonthlyRainfall()
+	{
+		Season currentSeason = TimeSystem.Instance?.CurrentSeason ?? Season.Summer;
+		
+		// Base seasonal rainfall (normalized 0-1)
+		float baseRainfall = currentSeason switch
+		{
+			Season.Summer => 0.7f,   // Wet season - heavy rains
+			Season.Autumn => 0.3f,   // Transitional - decreasing
+			Season.Winter => 0.05f,  // Dry season - minimal
+			Season.Spring => 0.25f,  // Transitional - building up
+			_ => 0.3f
+		};
+		
+		// Adjust based on current weather state
+		WeatherState weather = GameState.Instance?.CurrentWeather ?? WeatherState.Clear;
+		float weatherModifier = weather switch
+		{
+			WeatherState.Rain => 1.3f,
+			WeatherState.Storm => 1.6f,
+			WeatherState.Drought => 0.1f,
+			WeatherState.Overcast => 1.1f,
+			_ => 1.0f
+		};
+		
+		// Factor in recent rain days for more realistic variation
+		float recentRainBonus = _consecutiveRainDays > 0 ? 0.1f * Mathf.Min(_consecutiveRainDays, 3) : 0f;
+		
+		return Mathf.Clamp(baseRainfall * weatherModifier + recentRainBonus, 0f, 1f);
+	}
 }

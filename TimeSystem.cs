@@ -1,5 +1,6 @@
 using Godot;
 using BasterBoer.Core.Time;
+using WorldStreaming.Flora;
 
 namespace BasterBoer.Core.Systems
 {
@@ -58,7 +59,6 @@ namespace BasterBoer.Core.Systems
 				return;
 			}
 			Instance = this;
-
 			CurrentDate = new GameDate(2024, 1, 1);
 			_lastKnownSeason = CurrentDate.Season;
 
@@ -95,11 +95,17 @@ namespace BasterBoer.Core.Systems
 
 			CurrentDate = CurrentDate.AddDays(1);
 			OnDayPassed?.Invoke(CurrentDate);
+			FloraSystem.Instance?.OnDailyTick();
 
 			// Check for month change (triggers heavy simulation)
 			if (CurrentDate.Month != previousDate.Month)
 			{
 				OnMonthPassed?.Invoke(CurrentDate);
+				
+				// Flora monthly tick - pass rainfall data
+				float rainfall = WeatherSystem.Instance?.GetMonthlyRainfall() ?? 0f;
+				FloraSystem.Instance?.OnMonthlyTick(rainfall);
+				
 				ProcessSeasonalEvents();
 
 				// Check for year change
@@ -114,6 +120,7 @@ namespace BasterBoer.Core.Systems
 			{
 				_lastKnownSeason = CurrentDate.Season;
 				OnSeasonChanged?.Invoke(CurrentDate.Season, CurrentDate);
+				FloraSystem.Instance?.OnSeasonChanged(CurrentDate.Season);
 			}
 		}
 

@@ -5,4 +5,8 @@
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <RootNamespace>ClaudeGame</RootNamespace>
   </PropertyGroup>
-</Project>
+  <ItemGroup>
+    <!-- Exclude integration guide source templates from compilation -->
+    <Compile Remove="New Tasks\**\*.cs" />
+  </ItemGroup>
+</Project>

@@ -2,6 +2,7 @@ using Godot;
 using BasterBoer.Core.Systems;
 using BasterBoer.Core.Economy;
 using BasterBoer.Persistence;
+using WorldStreaming.Flora;
 
 namespace BasterBoer.Core
 {
@@ -21,6 +22,7 @@ namespace BasterBoer.Core
 		private GameState _gameState;
 		private TimeSystem _timeSystem;
 		private EconomySystem _economySystem;
+		private FloraSystem _floraSystem;
 
 		// --- Typed accessors (static for convenience) ---
 
@@ -32,6 +34,9 @@ namespace BasterBoer.Core
 
 		/// <summary>Financial management system.</summary>
 		public static EconomySystem Economy => Instance?._economySystem;
+
+		/// <summary>Flora simulation system (procedural generation + ecology).</summary>
+		public static FloraSystem Flora => Instance?._floraSystem;
 
 		/// <summary>Animal herd simulation (pure C# singleton).</summary>
 		public static LandManagementSim.Simulation.AnimalSystem Animals =>
@@ -92,6 +97,10 @@ namespace BasterBoer.Core
 			// 3. EconomySystem (connects to TimeSystem signals in its _Ready)
 			_economySystem = EnsureNode<EconomySystem>("EconomySystem");
 			GD.Print("[Bootstrap] EconomySystem ready.");
+
+			// 3b. FloraSystem (must enter tree to set Instance singleton)
+			_floraSystem = EnsureNode<FloraSystem>("FloraSystem");
+			GD.Print("[Bootstrap] FloraSystem ready.");
 
 			// 4. Pure C# singletons — force initialization by accessing Instance
 			var _ = WaterSystem.Instance;
@@ -176,6 +185,7 @@ namespace BasterBoer.Core
 			_gameState = null;
 			_timeSystem = null;
 			_economySystem = null;
+			_floraSystem = null;
 		}
 	}
 }

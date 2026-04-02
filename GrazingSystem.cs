@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using WorldStreaming;
+using WorldStreaming.Flora;
 
 namespace LandManagementSim.Simulation
 {
@@ -485,6 +487,14 @@ namespace LandManagementSim.Simulation
 			float grazeRange = GrazeRangeMeters + PatchSpreadRadiusMeters;
 			float grazeRangeSquared = grazeRange * grazeRange;
 
+			// Track grazing pressure per chunk for FloraSystem integration
+			Dictionary<ChunkCoord, float> chunkGrazingPressure = null;
+			var floraSystem = FloraSystem.Instance;
+			if (floraSystem != null)
+			{
+				chunkGrazingPressure = new Dictionary<ChunkCoord, float>();
+			}
+
 			for (int i = 0; i < _agents.Count; i++)
 			{
 				AgentEntry entry = _agents[i];
@@ -518,7 +528,27 @@ namespace LandManagementSim.Simulation
 					{
 						_ecology.ApplyGrazing(patch.Spawner, amount);
 						_activeGrazersLastTick++;
+
+						// Accumulate grazing pressure for the chunk this patch belongs to
+						if (chunkGrazingPressure != null)
+						{
+							var coord = ChunkCoord.FromWorldPosition(patch.Position, floraSystem.ChunkSizeMeters);
+							chunkGrazingPressure.TryGetValue(coord, out float existing);
+							chunkGrazingPressure[coord] = existing + amount;
+						}
 					}
+				}
+			}
+
+			// Forward accumulated grazing pressure to FloraSystem
+			if (chunkGrazingPressure != null)
+			{
+				foreach (var kvp in chunkGrazingPressure)
+				{
+					// Normalize pressure: scale raw biomass-consumed into 0..1 range
+					// A rough heuristic: 1.0 pressure ≈ heavy sustained grazing
+					float normalizedPressure = Mathf.Clamp(kvp.Value * 2f, 0f, 1f);
+					floraSystem.SetGrazingPressure(kvp.Key, normalizedPressure);
 				}
 			}
 		}
